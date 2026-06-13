@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent · Vector</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div class="wordmark">
+        <span class="wordmark-main">Agent</span>
+        <span class="wordmark-sep">·</span>
+        <span class="wordmark-sub">Vector</span>
+      </div>
+      <div class="masthead-meta">
+        <span id="status-dot" class="dot" title="connecting"></span>
+        <span class="masthead-tagline">Semantic Retrieval Engine</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- History -->
+    <aside class="panel panel--history">
+      <div class="panel-head history-head">
+        <h2 class="panel-title">History</h2>
+        <button id="new-chat" class="btn btn--ghost">+ New</button>
+      </div>
+      <div id="session-list" class="session-list">
+        <p class="session-empty">No conversations yet.</p>
+      </div>
+    </aside>
+
+    <!-- Knowledge base -->
+    <aside class="panel panel--kb">
+      <div class="panel-head">
+        <h2 class="panel-title">Knowledge Base</h2>
+        <p class="panel-desc">Ingest documents. Each is semantically chunked and embedded into the vector store.</p>
+      </div>
+
+      <div class="segmented" role="tablist">
+        <button class="seg active" data-tab="text">Text</button>
+        <button class="seg" data-tab="file">File</button>
+      </div>
+
+      <!-- Text ingest -->
+      <form id="text-form" class="ingest-form">
+        <label class="field-label" for="doc-name">Document name</label>
+        <input id="doc-name" class="input" type="text" placeholder="e.g. handbook" />
+        <label class="field-label" for="doc-content">Content</label>
+        <textarea id="doc-content" class="input textarea" rows="7" placeholder="Paste text to ingest…"></textarea>
+        <button class="btn btn--solid" type="submit">Ingest Text</button>
+      </form>
+
+      <!-- File ingest -->
+      <form id="file-form" class="ingest-form hidden">
+        <label class="field-label" for="doc-name-file">Document name <span class="muted">(optional)</span></label>
+        <input id="doc-name-file" class="input" type="text" placeholder="defaults to filename" />
+        <label class="field-label">File</label>
+        <label class="dropzone" id="dropzone">
+          <input id="file-input" type="file" hidden
+            accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.html,.htm,.md,.txt,.csv,.json" />
+          <span class="dropzone-icon">↑</span>
+          <span class="dropzone-text" id="dropzone-text">Choose a file or drop it here</span>
+          <span class="dropzone-hint">PDF · DOCX · PPTX · XLSX · HTML · CSV</span>
+        </label>
+        <button class="btn btn--solid" type="submit">Parse &amp; Ingest</button>
+      </form>
+
+      <div id="ingest-log" class="log" aria-live="polite"></div>
+
+      <div class="kb-docs">
+        <div class="kb-docs-head">
+          <span class="field-label">Documents</span>
+          <span class="kb-docs-count" id="docs-count"></span>
+        </div>
+        <div id="docs-list" class="docs-list">
+          <p class="docs-empty">No documents yet.</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Conversation -->
+    <section class="panel panel--chat">
+      <div class="panel-head chat-head">
+        <div>
+          <h2 class="panel-title">Conversation</h2>
+          <p class="panel-desc" id="session-label">No active session</p>
+        </div>
+      </div>
+
+      <div id="thread" class="thread">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-mark">⌗</div>
+          <p>Ask a question grounded in your knowledge base.<br />The agent retrieves, then answers with sources.</p>
+        </div>
+      </div>
+
+      <form id="ask-form" class="composer">
+        <input id="ask-file" type="file" hidden
+          accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.html,.htm,.md,.txt,.csv,.json" />
+        <button type="button" id="attach-btn" class="composer-attach" title="Attach a file to this conversation" aria-label="Attach file">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <div class="composer-main">
+          <div id="attach-chip" class="attach-chip hidden"></div>
+          <textarea id="ask-input" class="composer-input" rows="1" placeholder="Ask a question…" autocomplete="off"></textarea>
+        </div>
+        <button id="ask-btn" class="btn btn--solid composer-btn" type="submit">Send</button>
+      </form>
+    </section>
+  </main>
+
+  <!-- Confirmation modal -->
+  <div id="confirm-overlay" class="overlay hidden">
+    <div class="modal" role="dialog" aria-modal="true">
+      <p class="modal-text" id="confirm-text">Delete this conversation?</p>
+      <p class="modal-sub">This permanently removes the conversation and its messages.</p>
+      <div class="modal-actions">
+        <button class="btn btn--ghost" id="confirm-cancel">Cancel</button>
+        <button class="btn btn--solid" id="confirm-ok">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
