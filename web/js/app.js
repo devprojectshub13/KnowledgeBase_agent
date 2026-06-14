@@ -14,7 +14,8 @@ function escapeHtml(s) {
 
 // Minimal **bold** rendering on top of escaped text.
 function renderMarkdown(s) {
-  return escapeHtml(s).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  const rawHtml = marked.parse(s, { gfm: true, breaks: true });
+  return DOMPurify.sanitize(rawHtml);
 }
 
 // Parse a response as JSON, tolerating empty/non-JSON bodies (e.g. proxy 5xx).
@@ -402,6 +403,7 @@ function addMessage(role, text, sources, attachment) {
     body.className = "msg-body";
     body.innerHTML = renderMarkdown(text);
     wrap.append(body);
+    enhanceCopyable(body);
   }
 
   if (sources && sources.length) {
@@ -575,6 +577,91 @@ async function restoreSession() {
   } catch {
     /* offline — leave empty state */
   }
+ 
+}
+ /* ---------- action buttons for code blocks and tables ---------- */
+function enhanceCopyable(container) {
+  // Code blocks → Copy
+  container.querySelectorAll("pre").forEach((pre) => {
+    if (pre.dataset.enhanced) return;
+    pre.dataset.enhanced = "1";
+    const wrap = document.createElement("div");
+    wrap.className = "copy-wrap";
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    wrap.appendChild(
+      makeActionBtn("Copy", "Copied", async () => {
+        await navigator.clipboard.writeText(
+          pre.querySelector("code")?.innerText ?? pre.innerText
+        );
+      })
+    );
+  });
+
+  // Tables → Download as CSV (opens in Excel/Sheets/Numbers)
+  container.querySelectorAll("table").forEach((table) => {
+    if (table.dataset.enhanced) return;
+    table.dataset.enhanced = "1";
+    const wrap = document.createElement("div");
+    wrap.className = "copy-wrap copy-wrap--table";
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+    wrap.appendChild(
+      makeActionBtn("Excel", "Saved", async () => {
+        downloadCSV(tableToCSV(table), `table-${Date.now()}.csv`);
+      })
+    );
+  });
+}
+
+function makeActionBtn(label, doneLabel, action) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "copy-btn";
+  btn.textContent = label;
+  btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      await action();
+      btn.textContent = doneLabel;
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = label;
+        btn.classList.remove("copied");
+      }, 1400);
+    } catch {
+      btn.textContent = "Failed";
+      setTimeout(() => (btn.textContent = label), 1400);
+    }
+  });
+  return btn;
+}
+
+// RFC 4180 CSV: quote cells containing commas, quotes, or newlines.
+function tableToCSV(table) {
+  const escape = (s) => {
+    s = String(s).replace(/\r?\n/g, " ");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return Array.from(table.rows)
+    .map((row) =>
+      Array.from(row.cells).map((c) => escape(c.innerText.trim())).join(",")
+    )
+    .join("\r\n");
+}
+
+function downloadCSV(csv, filename) {
+  // UTF-8 BOM (\ufeff) is the magic byte that makes Excel correctly
+  // read non-ASCII characters (em dashes, accents, etc.) on Windows.
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /* ---------- init ---------- */

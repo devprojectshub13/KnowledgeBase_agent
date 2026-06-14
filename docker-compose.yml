@@ -1,6 +1,7 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.0-pg16
+    platform: linux/amd64
     container_name: agent-vector-db
     environment:
       POSTGRES_USER: postgres
@@ -15,6 +16,5 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-
 volumes:
   pgdata:

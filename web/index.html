@@ -1,14 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Agent · Vector</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
+
 <body>
   <header class="masthead">
     <div class="masthead-inner">
@@ -104,12 +108,18 @@
       <form id="ask-form" class="composer">
         <input id="ask-file" type="file" hidden
           accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.html,.htm,.md,.txt,.csv,.json" />
-        <button type="button" id="attach-btn" class="composer-attach" title="Attach a file to this conversation" aria-label="Attach file">
-          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        <button type="button" id="attach-btn" class="composer-attach" title="Attach a file to this conversation"
+          aria-label="Attach file">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path
+              d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+          </svg>
         </button>
         <div class="composer-main">
           <div id="attach-chip" class="attach-chip hidden"></div>
-          <textarea id="ask-input" class="composer-input" rows="1" placeholder="Ask a question…" autocomplete="off"></textarea>
+          <textarea id="ask-input" class="composer-input" rows="1" placeholder="Ask a question…"
+            autocomplete="off"></textarea>
         </div>
         <button id="ask-btn" class="btn btn--solid composer-btn" type="submit">Send</button>
       </form>
@@ -127,7 +137,10 @@
       </div>
     </div>
   </div>
+  <script src="/static/js/marked.min.js"></script>
+  <script src="/static/js/purify.min.js"></script>
+  <script src="/static/js/app.js"></script>
 
-  <script src="/static/app.js"></script>
 </body>
+
 </html>

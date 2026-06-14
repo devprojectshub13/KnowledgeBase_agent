@@ -621,3 +621,96 @@ a.msg-file:hover { border-color: var(--ink); }
   .panel--history { max-height: 240px; }
   .panel--chat { height: 72vh; }
 }
+.msg-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.msg-body th, .msg-body td {
+  border: 1px solid var(--line-faint);
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.msg-body th { background: var(--field); font-weight: 600; }
+.msg-body tr:nth-child(even) td { background: var(--field); }
+
+.msg-body p { margin: 0 0 10px; }
+.msg-body p:last-child { margin-bottom: 0; }
+.msg-body ul, .msg-body ol { margin: 8px 0; padding-left: 20px; }
+.msg-body li { margin: 3px 0; }
+
+.msg-body code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--field);
+  padding: 1px 5px;
+  border: 1px solid var(--line-faint);
+}
+.msg-body pre {
+  background: var(--field);
+  border: 1.5px solid var(--line-faint);
+  padding: 12px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+.msg-body pre code { background: none; border: none; padding: 0; }
+.msg-body blockquote {
+  border-left: 2.5px solid var(--line-faint);
+  margin: 8px 0;
+  padding-left: 12px;
+  color: var(--ink-soft);
+}
+.copy-wrap {
+  position: relative;
+  margin: 10px 0;
+}
+.copy-wrap > pre,
+.copy-wrap > table {
+  margin: 0;
+}
+.copy-wrap--table {
+  overflow-x: auto;
+}
+
+.copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  border: 1.5px solid var(--line-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  z-index: 2;
+}
+.copy-wrap:hover .copy-btn,
+.copy-btn:focus-visible {
+  opacity: 1;
+}
+.copy-btn:hover {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+.copy-btn.copied {
+  opacity: 1;
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+/* tables inside user (dark) bubble — flip button colors */
+.msg--user .copy-btn {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--paper);
+}
+.msg--user .copy-btn:hover { background: var(--paper); color: var(--ink); }
