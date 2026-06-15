@@ -406,7 +406,12 @@ function addMessage(role, text, sources, attachment) {
     enhanceCopyable(body);
   }
 
-  if (sources && sources.length) {
+if (sources && sources.length) {
+    if (role === "assistant") {
+      topDocuments(sources, 3).forEach((top, i) => {
+        wrap.appendChild(buildPreview(top, i + 1));
+      });
+    }
     wrap.appendChild(buildSources(sources));
   }
   thread.appendChild(wrap);
@@ -663,7 +668,141 @@ function downloadCSV(csv, filename) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+ 
+// Group sources by document (keep each doc's best score), return the top N.
+function topDocuments(sources, limit = 3) {
+  if (!sources || !sources.length) return [];
+  const byDoc = {};
+  sources.forEach((s) => {
+    if (!byDoc[s.document] || s.score > byDoc[s.document].score) {
+      byDoc[s.document] = { document: s.document, score: s.score };
+    }
+  });
+  const ranked = Object.values(byDoc).sort((a, b) => b.score - a.score);
+  const top = ranked[0].score;
+  return ranked
+    .filter((d) => d.score >= 0.25 && d.score >= top * 0.5)
+    .slice(0, limit);
+}
+const PREVIEW_KIND = {
+  pdf: "frame", html: "frame", htm: "frame",
+  md: "markdown", markdown: "markdown",
+  txt: "text", log: "text", json: "text",
+  csv: "csv", tsv: "csv",
+};
 
+function extOf(name) {
+  const m = /\.([^.]+)$/.exec(name);
+  return m ? m[1].toLowerCase() : "";
+}
+function buildPreview(top, rank) {
+  const box = document.createElement("div");
+  box.className = "preview";
+  const dlUrl = `/documents/${encodeURIComponent(top.document)}/download`;
+
+  box.innerHTML =
+    `<div class="preview-head">` +
+    `<span class="preview-label">Source ${rank}</span>` +
+    `<span class="preview-name">${escapeHtml(top.document)}</span>` +
+    `<span class="preview-score">${top.score.toFixed(3)}</span></div>` +
+    `<div class="preview-body"></div>` +
+    `<div class="preview-actions">` +
+    `<button type="button" class="preview-toggle">Preview</button>` +
+    `<a class="preview-dl" href="${dlUrl}" download>Download</a></div>`;
+
+  const body = box.querySelector(".preview-body");
+  const toggle = box.querySelector(".preview-toggle");
+  let loaded = false;
+
+  toggle.addEventListener("click", async () => {
+    const open = body.classList.toggle("open");
+    toggle.textContent = open ? "Hide" : "Preview";
+    if (!open || loaded) return;
+    loaded = true;
+    try {
+      await renderPreview(body, top, dlUrl);
+    } catch {
+      loaded = false;
+      body.innerHTML =
+        `<div class="preview-loading err">Couldn't load preview. ` +
+        `<a href="${dlUrl}" download>Download instead</a></div>`;
+    }
+  });
+  return box;
+}
+async function renderPreview(body, top, dlUrl) {
+  const ext = extOf(top.document);
+  const kind = PREVIEW_KIND[ext] || "none";
+
+  // Office/binary types the browser can't render inline.
+  if (kind === "none") {
+    body.innerHTML =
+      `<div class="preview-loading">No inline preview for <code>.${escapeHtml(ext)}</code> files. ` +
+      `<a href="${dlUrl}" download>Download</a> to open it.</div>`;
+    return;
+  }
+
+  body.innerHTML = `<div class="preview-loading">Loading…</div>`;
+  const r = await fetch(dlUrl);
+  if (!r.ok) throw new Error();
+
+  if (kind === "frame") {
+    const url = URL.createObjectURL(await r.blob());
+    const frame = document.createElement("iframe");
+    frame.className = "preview-frame";
+    frame.title = top.document;
+    frame.src = ext === "pdf" ? `${url}#toolbar=0&view=FitH` : url;
+    body.innerHTML = "";
+    body.appendChild(frame);
+    return;
+  }
+
+  const text = await r.text();
+  if (kind === "markdown") {
+    body.innerHTML = `<div class="preview-doc">${renderMarkdown(text)}</div>`;
+  } else if (kind === "csv") {
+    const delim = ext === "tsv" ? "\t" : ",";
+    body.innerHTML = `<div class="preview-doc">${csvToTable(text, delim)}</div>`;
+  } else {
+    const pre = document.createElement("pre");
+    pre.className = "preview-pre";
+    pre.textContent = text;
+    body.innerHTML = "";
+    body.appendChild(pre);
+  }
+}
+
+ 
+
+// Minimal RFC-4180-ish CSV parser (handles quotes and embedded commas/newlines).
+function parseCSV(text, delim) {
+  const rows = [];
+  let row = [], field = "", inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQ = false;
+      } else field += c;
+    } else if (c === '"') inQ = true;
+    else if (c === delim) { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c !== "\r") field += c;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function csvToTable(text, delim) {
+  const rows = parseCSV(text, delim).slice(0, 200); // cap for big files
+  if (!rows.length) return "";
+  const head = rows[0].map((c) => `<th>${escapeHtml(c)}</th>`).join("");
+  const bodyRows = rows.slice(1)
+    .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`)
+    .join("");
+  return `<table class="preview-table"><thead><tr>${head}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+}
 /* ---------- init ---------- */
 setSessionLabel();
 restoreSession();

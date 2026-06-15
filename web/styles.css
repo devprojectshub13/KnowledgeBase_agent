@@ -714,3 +714,48 @@ a.msg-file:hover { border-color: var(--ink); }
   border-color: var(--paper);
 }
 .msg--user .copy-btn:hover { background: var(--paper); color: var(--ink); }
+.preview { margin-top: 10px; border: 1.5px solid var(--line-faint); }
+.preview-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; background: var(--field);
+  border-bottom: 1.5px solid var(--line-faint);
+}
+.preview-label {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--muted);
+}
+.preview-name {
+  flex: 1; min-width: 0; font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.preview-score { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.preview-body { display: none; }
+.preview-body.open { display: block; }
+.preview-frame { width: 100%; height: 420px; border: none; display: block; background: var(--paper); }
+.preview-loading {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  padding: 16px; text-align: center;
+}
+.preview-loading.err { color: var(--ink-soft); }
+.preview-actions { display: flex; gap: 8px; padding: 8px 12px; }
+.preview-toggle, .preview-dl {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; padding: 5px 12px; cursor: pointer;
+  border: 1.5px solid var(--line-faint); background: var(--paper);
+  color: var(--ink-soft); text-decoration: none;
+}
+.preview-toggle:hover, .preview-dl:hover {
+  background: var(--ink); color: var(--paper); border-color: var(--ink);
+}
+.preview-doc, .preview-pre { max-height: 420px; overflow: auto; padding: 14px 16px; }
+.preview-doc { font-size: 13px; line-height: 1.6; }
+.preview-pre {
+  margin: 0; font-family: var(--mono); font-size: 12px;
+  white-space: pre-wrap; word-break: break-word;
+}
+.preview-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+.preview-table th, .preview-table td {
+  border: 1px solid var(--line-faint); padding: 6px 9px;
+  text-align: left; white-space: nowrap;
+}
+.preview-table th { background: var(--field); font-weight: 600; position: sticky; top: 0; }
