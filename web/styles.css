@@ -143,6 +143,39 @@ body {
   color: var(--ink);
 }
 
+/* Aggregate provenance: "Based on all N invoices" → expandable chips. */
+.agg-sources {
+  margin-top: 10px;
+}
+.agg-toggle {
+  font-family: "Inter", sans-serif;
+  font-size: 0.74rem;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink-soft);
+  cursor: pointer;
+  border-bottom: 1px dashed var(--line-faint);
+}
+.agg-toggle::before {
+  content: "▸ ";
+}
+.agg-toggle.open::before {
+  content: "▾ ";
+}
+.agg-toggle:hover {
+  color: var(--ink);
+}
+.agg-list {
+  display: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.agg-list.open {
+  display: flex;
+}
+
 /* Rendered chart container inside an assistant message. */
 .chart-box {
   margin-top: 12px;

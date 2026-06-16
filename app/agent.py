@@ -122,12 +122,18 @@ _MAX_ROUNDS = 6
 
 
 async def _run_tool(
-    name: str, args: dict, chart_box: list[ChartSpec], sources: set[str]
+    name: str,
+    args: dict,
+    chart_box: list[ChartSpec],
+    sources: set[str],
+    aggregated: set[str],
 ) -> str:
     if name == "aggregate_invoices":
-        return json.dumps(
-            aggregate(args.get("metric", "total_amount"), args.get("group_by"))
-        )
+        result = aggregate(args.get("metric", "total_amount"), args.get("group_by"))
+        # An aggregate spans every invoice — record them for the
+        # "Based on all N invoices" provenance line.
+        aggregated.update(r["name"] for r in list_invoices())
+        return json.dumps(result)
     if name == "list_invoices":
         return json.dumps(list_invoices())
     if name == "read_invoice":
@@ -163,6 +169,7 @@ async def answer_question(
 
     chart_box: list[ChartSpec] = []
     sources: set[str] = set()
+    aggregated: set[str] = set()
 
     for _ in range(_MAX_ROUNDS):
         completion = await chat_completion(
@@ -178,12 +185,15 @@ async def answer_question(
                 answer=msg.content or "",
                 chart=chart_box[-1] if chart_box else None,
                 sources=sorted(sources),
+                aggregated=sorted(aggregated),
             )
 
         messages.append(msg.model_dump(exclude_none=True))
         for call in msg.tool_calls:
             args = json.loads(call.function.arguments or "{}")
-            result = await _run_tool(call.function.name, args, chart_box, sources)
+            result = await _run_tool(
+                call.function.name, args, chart_box, sources, aggregated
+            )
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": result}
             )
@@ -196,4 +206,5 @@ async def answer_question(
         ),
         chart=chart_box[-1] if chart_box else None,
         sources=sorted(sources),
+        aggregated=sorted(aggregated),
     )

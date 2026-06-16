@@ -190,6 +190,7 @@ async def ask(
     meta = {
         "chart": result.chart.model_dump() if result.chart else None,
         "sources": result.sources,
+        "aggregated": result.aggregated,
     }
     await append_turn(session, session_id, req.question, result.answer, meta=meta)
     result.session_id = session_id

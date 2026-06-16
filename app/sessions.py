@@ -109,6 +109,7 @@ async def load_transcript(session: AsyncSession, session_id: str) -> list[dict]:
                 "content": m.content,
                 "chart": meta.get("chart"),
                 "sources": meta.get("sources") or [],
+                "aggregated": meta.get("aggregated") or [],
             }
         )
     return out

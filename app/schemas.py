@@ -26,7 +26,8 @@ class ChartSpec(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     chart: ChartSpec | None = None
-    sources: list[str] = []  # invoice names the agent read for this answer
+    sources: list[str] = []  # specific invoices the agent read for this answer
+    aggregated: list[str] = []  # invoices covered by an aggregate (totals/charts)
     session_id: str | None = None
 
 
@@ -46,3 +47,4 @@ class MessageOut(BaseModel):
     content: str
     chart: ChartSpec | None = None
     sources: list[str] = []
+    aggregated: list[str] = []

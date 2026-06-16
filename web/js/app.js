@@ -159,7 +159,9 @@ async function loadMessages(id) {
     const r = await fetch(`/sessions/${id}/messages`);
     thread.innerHTML = "";
     if (!r.ok) return;
-    (await r.json()).forEach((m) => addMessage(m.role, m.content, m.chart, m.sources));
+    (await r.json()).forEach((m) =>
+      addMessage(m.role, m.content, m.chart, m.sources, m.aggregated)
+    );
   } catch {
     /* offline */
   }
@@ -386,7 +388,7 @@ function resetThread() {
   thread.innerHTML = EMPTY_STATE_HTML;
 }
 
-function addMessage(role, text, chart, sources) {
+function addMessage(role, text, chart, sources, aggregated) {
   clearEmptyState();
   const wrap = document.createElement("div");
   wrap.className = `msg msg--${role}`;
@@ -404,24 +406,47 @@ function addMessage(role, text, chart, sources) {
   }
   if (chart) wrap.append(buildChart(chart));
   if (sources && sources.length) wrap.append(buildSources(sources));
+  if (aggregated && aggregated.length) wrap.append(buildAggregated(aggregated));
 
   thread.appendChild(wrap);
   thread.scrollTop = thread.scrollHeight;
   return wrap;
 }
 
+// Preview chip for one invoice name.
+function srcChip(name) {
+  const chip = document.createElement("button");
+  chip.className = "src-chip";
+  chip.textContent = name;
+  chip.title = `Preview ${name}`;
+  chip.addEventListener("click", () => openPreview(name, name));
+  return chip;
+}
+
+// Specific invoices the agent read.
 function buildSources(names) {
   const box = document.createElement("div");
   box.className = "src-chips";
   box.innerHTML = `<span class="src-label">Used:</span>`;
-  names.forEach((n) => {
-    const chip = document.createElement("button");
-    chip.className = "src-chip";
-    chip.textContent = n;
-    chip.title = `Preview ${n}`;
-    chip.addEventListener("click", () => openPreview(n, n));
-    box.appendChild(chip);
+  names.forEach((n) => box.appendChild(srcChip(n)));
+  return box;
+}
+
+// Provenance for aggregate answers: "Based on all N invoices" → expands to chips.
+function buildAggregated(names) {
+  const box = document.createElement("div");
+  box.className = "agg-sources";
+  const toggle = document.createElement("button");
+  toggle.className = "agg-toggle";
+  toggle.textContent = `Based on all ${names.length} invoice${names.length > 1 ? "s" : ""}`;
+  const list = document.createElement("div");
+  list.className = "agg-list";
+  names.forEach((n) => list.appendChild(srcChip(n)));
+  toggle.addEventListener("click", () => {
+    const open = list.classList.toggle("open");
+    toggle.classList.toggle("open", open);
   });
+  box.append(toggle, list);
   return box;
 }
 
@@ -521,7 +546,7 @@ async function sendQuestion(question) {
       localStorage.setItem(SESSION_KEY, sessionId);
       setSessionLabel();
     }
-    addMessage("assistant", data.answer || "(no answer)", data.chart, data.sources);
+    addMessage("assistant", data.answer || "(no answer)", data.chart, data.sources, data.aggregated);
     loadSessions();
   } catch (err) {
     typing.remove();
@@ -561,7 +586,9 @@ async function restoreSession() {
     }
     const msgs = await r.json();
     if (msgs.length) clearEmptyState();
-    msgs.forEach((m) => addMessage(m.role, m.content, m.chart, m.sources));
+    msgs.forEach((m) =>
+      addMessage(m.role, m.content, m.chart, m.sources, m.aggregated)
+    );
   } catch {
     /* offline */
   }
