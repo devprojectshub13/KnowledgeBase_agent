@@ -1,3 +1,5 @@
+import asyncio
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -118,6 +120,66 @@ async def ingest_file(
         tax_amount=fields.get("tax_amount"),
         currency=fields.get("currency"),
     )
+
+
+@app.post("/ingest/files")
+async def ingest_files(
+    files: list[UploadFile] = File(...),
+    on_duplicate: str = Form("skip"),  # skip | replace | keep_both
+) -> dict:
+    """Bulk upload: extract many invoices concurrently (each is one LLM call,
+    bounded by settings.bulk_concurrency). Duplicates are handled by the batch
+    policy (default skip) since we can't prompt per-file. Returns a per-file
+    result list plus a summary."""
+    sem = asyncio.Semaphore(settings.bulk_concurrency)
+    write_lock = asyncio.Lock()  # serialize the find-existing + write step
+    loop = asyncio.get_running_loop()
+    workers = min(settings.bulk_concurrency, len(files))
+
+    async def handle(file: UploadFile, pool: ProcessPoolExecutor) -> dict:
+        fn = file.filename or "invoice"
+        if not is_supported(fn):
+            return {"filename": fn, "status": "error", "detail": "unsupported type"}
+        data = await file.read()
+        try:
+            # PDF parsing is CPU-bound (GIL-locked) — run it across processes so
+            # files parse in true parallel. LLM extraction is async-concurrent.
+            markdown = await loop.run_in_executor(pool, parse_to_markdown, fn, data)
+            if not markdown:
+                return {"filename": fn, "status": "error", "detail": "no text"}
+            async with sem:
+                fields, body = await extract_invoice(fn, markdown)
+        except Exception as exc:  # noqa: BLE001 - report, don't fail the batch
+            return {"filename": fn, "status": "error", "detail": str(exc)[:140]}
+        async with write_lock:  # fast, serialized to avoid duplicate races
+            existing = find_existing(
+                fields.get("invoice_no"), fields.get("seller_name")
+            )
+            if existing and on_duplicate == "skip":
+                return {
+                    "filename": fn,
+                    "status": "duplicate",
+                    "invoice_no": fields.get("invoice_no"),
+                }
+            name = save_invoice(
+                fields, body, name=existing if on_duplicate == "replace" else None
+            )
+        return {
+            "filename": fn,
+            "status": "stored",
+            "name": name,
+            "invoice_no": fields.get("invoice_no"),
+            "total_amount": fields.get("total_amount"),
+        }
+
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        results = await asyncio.gather(*(handle(f, pool) for f in files))
+    summary = {
+        "stored": sum(r["status"] == "stored" for r in results),
+        "duplicates": sum(r["status"] == "duplicate" for r in results),
+        "errors": sum(r["status"] == "error" for r in results),
+    }
+    return {"summary": summary, "results": results}
 
 
 @app.get("/invoices")

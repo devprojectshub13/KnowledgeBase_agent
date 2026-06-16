@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     # Where extracted invoice markdown files are stored (one file per invoice).
     invoice_dir: str = "invoice_data"
 
+    # Max invoices extracted in parallel during a bulk upload (each is one LLM
+    # call — this bounds concurrency so we don't hammer the provider).
+    bulk_concurrency: int = 8
+
     # Database (Postgres) — only conversation sessions/messages live here.
     database_url: str = (
         "postgresql+asyncpg://postgres:postgres@localhost:9432/agentvector"

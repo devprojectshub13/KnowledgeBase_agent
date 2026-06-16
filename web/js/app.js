@@ -333,6 +333,46 @@ async function uploadOne(file, onDuplicate) {
   return { status: r.status, data: await safeJson(r) };
 }
 
+// One file: interactive, so the user can resolve a duplicate.
+async function uploadSingle(file) {
+  let res = await uploadOne(file);
+  if (res.status === 409) {
+    const choice = await duplicateDialog(res.data.detail || {});
+    if (!choice) {
+      logIngest(`↪ skipped duplicate ${file.name}`);
+      return 0;
+    }
+    res = await uploadOne(file, choice);
+  }
+  if (res.status < 200 || res.status >= 300) {
+    logIngest(`✕ ${file.name}: ${res.data.detail?.message || res.data.detail || "failed"}`, true);
+    return 0;
+  }
+  const d = res.data;
+  logIngest(`✓ ${d.invoice_no || d.name} — ${d.currency || ""} ${formatMoney(d.total_amount)}`);
+  return 1;
+}
+
+// Many files: extracted concurrently server-side; duplicates skipped by default.
+async function uploadBulk(files) {
+  const fd = new FormData();
+  files.forEach((f) => fd.append("files", f));
+  logIngest(`⟳ extracting ${files.length} invoices in parallel…`);
+  const r = await fetch("/ingest/files", { method: "POST", body: fd });
+  const data = await safeJson(r);
+  if (!r.ok) {
+    logIngest(`✕ bulk upload failed: ${data.detail || r.status}`, true);
+    return 0;
+  }
+  (data.results || []).forEach((res) => {
+    if (res.status === "duplicate") logIngest(`↪ duplicate skipped: ${res.invoice_no || res.filename}`);
+    else if (res.status === "error") logIngest(`✕ ${res.filename}: ${res.detail}`, true);
+  });
+  const s = data.summary;
+  logIngest(`✓ ${s.stored} stored · ${s.duplicates} duplicate(s) · ${s.errors} error(s)`);
+  return s.stored;
+}
+
 $("#file-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const files = Array.from(fileInput.files || []);
@@ -342,35 +382,20 @@ $("#file-form").addEventListener("submit", async (e) => {
   }
   const btn = e.target.querySelector("button");
   btn.disabled = true;
-  btn.textContent = "Extracting…";
-  let ok = 0;
-  for (const file of files) {
-    try {
-      let res = await uploadOne(file);
-      // 409 → same invoice already stored: ask the user what to do.
-      if (res.status === 409) {
-        const choice = await duplicateDialog(res.data.detail || {});
-        if (!choice) {
-          logIngest(`↪ skipped duplicate ${file.name}`);
-          continue;
-        }
-        res = await uploadOne(file, choice);
-      }
-      if (res.status < 200 || res.status >= 300) {
-        throw new Error(res.data.detail?.message || res.data.detail || "Extraction failed");
-      }
-      ok++;
-      const d = res.data;
-      logIngest(`✓ ${d.invoice_no || d.name} — ${d.currency || ""} ${formatMoney(d.total_amount)}`);
-    } catch (err) {
-      logIngest(`✕ ${file.name}: ${err.message}`, true);
-    }
+  btn.textContent = files.length > 1 ? `Extracting ${files.length}…` : "Extracting…";
+
+  let stored = 0;
+  if (files.length === 1) {
+    stored = await uploadSingle(files[0]);
+  } else {
+    stored = await uploadBulk(files);
   }
+
   btn.disabled = false;
   btn.textContent = "Extract & Store";
   fileInput.value = "";
   setFileName(null);
-  if (ok) loadInvoices();
+  if (stored) loadInvoices();
 });
 
 /* ---------- chat ---------- */
