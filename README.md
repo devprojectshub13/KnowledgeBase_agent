@@ -69,6 +69,21 @@ docker run -p 9001:9001 \
 
 Image: **`bhutiyalakhan/invoice-agent`** on Docker Hub (`:latest`, `:0.1.0`).
 
+## Ship as a turnkey app (`dist/`)
+
+`dist/` is a self-contained bundle to hand a client — it pulls **both** the app
+image and Postgres, so there's nothing else to install:
+
+1. Copy `dist/` to the client (or zip it).
+2. `cp .env.example .env` and put the OpenAI key in `.env`
+   (**set a hard spend cap on that key** in the OpenAI dashboard).
+3. `docker compose up -d`
+4. Open **http://localhost:9000**
+
+The key lives only in the client's `.env` — it is **never** baked into the
+public image. Extracted invoices persist in `./invoice_data`, the database in a
+named volume.
+
 Open **http://localhost:9001/**.
 
 ## Endpoints

@@ -1,0 +1,42 @@
+# Invoice Agent — turnkey deployment.
+#
+#   1. Put your OpenAI key in .env  (see .env.example)
+#   2. docker compose up -d
+#   3. Open http://localhost:9000
+#
+# Docker pulls both images (Postgres + the app) automatically — nothing else to
+# install.
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.0-pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: agentvector
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d agentvector"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    image: bhutiyalakhan/invoice-agent:0.1.0
+    ports:
+      - "9000:9001" # open http://localhost:9000
+    env_file: .env
+    environment:
+      # The app talks to the bundled Postgres over the compose network.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/agentvector
+    volumes:
+      - ./invoice_data:/app/invoice_data # extracted invoices persist here
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
