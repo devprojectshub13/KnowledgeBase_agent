@@ -16,19 +16,10 @@ from app.config import settings
 
 INVOICE_DIR = Path(settings.invoice_dir).resolve()
 
-# Canonical fields we extract per invoice (others are allowed but these drive
-# the standard questions: totals, tax, state-wise/time-series charts).
-FIELDS = [
-    "invoice_no",
-    "invoice_date",  # ISO yyyy-mm-dd
-    "seller_name",
-    "seller_state",
-    "buyer_name",
-    "buyer_state",
-    "currency",
-    "total_amount",
-    "tax_amount",
-]
+# Numeric frontmatter fields the agent can total/chart (the metric enum).
+NUMERIC_FIELDS = ["taxable_value", "tax_amount", "total_amount", "cgst", "sgst", "igst"]
+# String fields the agent can group/filter by.
+GROUP_FIELDS = ["buyer_state", "seller_state", "currency", "month"]
 
 
 def _slug(value: str) -> str:
@@ -100,15 +91,22 @@ def _parse(text: str) -> tuple[dict, str]:
     return (front if isinstance(front, dict) else {}), m.group(2).strip()
 
 
+# Bulky fields excluded from the compact list view (still in the file, available
+# via read_invoice). Keeps the list_invoices tool payload small for many invoices.
+_LIST_EXCLUDE = {"line_items", "additional_fields"}
+
+
 def list_invoices() -> list[dict]:
-    """Structured frontmatter for every stored invoice (one compact row each).
-    This is what the agent aggregates over for totals and charts."""
+    """Compact structured frontmatter for every stored invoice (one row each).
+    This is what the agent aggregates over for totals and charts; per-invoice
+    line items live in the file and are fetched via read_invoice."""
     if not INVOICE_DIR.exists():
         return []
     rows: list[dict] = []
     for path in sorted(INVOICE_DIR.glob("*.md")):
         front, _ = _parse(path.read_text(encoding="utf-8"))
-        rows.append({"name": path.stem, **front})
+        row = {k: v for k, v in front.items() if k not in _LIST_EXCLUDE}
+        rows.append({"name": path.stem, **row})
     return rows
 
 

@@ -1,6 +1,7 @@
 """Invoice ingestion: parse a file to markdown, extract structured fields with
-the LLM, and write one invoice markdown file. This is the ``write`` side of the
-pipeline — it decides what is worth saving and stores it in a queryable shape."""
+the LLM, and return them. This is the ``write`` side of the pipeline — it pulls
+every useful field (plus anything else the model spots) so we never have to
+re-upload to answer a new kind of question later."""
 
 import json
 import re
@@ -9,25 +10,56 @@ from app.config import settings
 from app.llm import chat_completion
 
 _EXTRACT_SYSTEM = (
-    "You extract structured data from a single invoice. You are given the "
-    "invoice as markdown. Return ONLY a JSON object with these keys:\n"
-    "- invoice_no (string)\n"
-    "- invoice_date (string, ISO yyyy-mm-dd; convert from any format)\n"
-    "- seller_name (string — the company issuing the invoice)\n"
-    "- seller_state (string — state/region of the seller)\n"
-    "- buyer_name (string)\n"
-    "- buyer_state (string — state/region of the buyer; the 'place of supply')\n"
-    "- currency (string, ISO code like INR/USD/EUR; infer from symbols)\n"
-    "- total_amount (number — the grand total payable, no currency symbol or "
-    "thousands separators)\n"
-    "- tax_amount (number — total tax: sum of CGST+SGST+IGST/VAT/GST)\n"
-    "- summary (string — a short markdown summary of the line items)\n"
-    "Use null for any field genuinely absent. Never guess amounts; copy the "
-    "numbers exactly as printed. Output JSON only, no prose."
+    "You extract structured data from a single invoice, given as markdown. "
+    "Return ONLY a JSON object with these keys:\n"
+    "- invoice_no (string — the SELLER'S invoice/bill number, usually labelled "
+    "'Invoice No'. It is NOT the PO/order number, NOT the IRN/ACK, and NOT any "
+    "reference/challan number. If unsure, pick the value next to 'Invoice No'.)\n"
+    "- invoice_date (ISO yyyy-mm-dd; convert from any format)\n"
+    "- due_date (ISO yyyy-mm-dd or null)\n"
+    "- seller_name, seller_state, seller_gstin (strings)\n"
+    "- buyer_name, buyer_state (the 'place of supply'), buyer_gstin (strings)\n"
+    "- currency (ISO code like INR/USD/EUR; infer from symbols)\n"
+    "- taxable_value (number — total amount BEFORE tax / sum of taxable values)\n"
+    "- cgst, sgst, igst (numbers or null — the tax components)\n"
+    "- tax_amount (number — total tax = cgst+sgst+igst, or total VAT/GST)\n"
+    "- total_amount (number — the grand total payable)\n"
+    "- po_number (string or null)\n"
+    "- hsn_codes (array of distinct HSN/SAC code strings)\n"
+    "- line_items (array of objects: description, hsn, quantity, rate, amount)\n"
+    "- additional_fields (object — ANY other useful fields present on the invoice "
+    "that aren't listed above, e.g. irn, eway_bill_no, vehicle_no, transporter, "
+    "payment_terms, place_of_supply, reverse_charge. Think about what could be "
+    "useful for analytics and include it with clear snake_case keys. Use {} if "
+    "there is nothing extra.)\n"
+    "Rules: copy numbers exactly as printed (no currency symbols or thousands "
+    "separators). Use null for absent scalars, [] / {} for absent lists/objects. "
+    "Never invent values. Output JSON only, no prose."
 )
 
-# Fields persisted to frontmatter (everything except the free-text summary).
-_NUMERIC = {"total_amount", "tax_amount"}
+# Scalar fields coerced to numbers.
+_NUMERIC = {
+    "taxable_value",
+    "cgst",
+    "sgst",
+    "igst",
+    "tax_amount",
+    "total_amount",
+}
+# Scalar fields kept as-is (strings / null).
+_STRINGS = [
+    "invoice_no",
+    "invoice_date",
+    "due_date",
+    "seller_name",
+    "seller_state",
+    "seller_gstin",
+    "buyer_name",
+    "buyer_state",
+    "buyer_gstin",
+    "currency",
+    "po_number",
+]
 
 
 def _to_number(value) -> float | None:
@@ -45,7 +77,8 @@ def _to_number(value) -> float | None:
 async def extract_invoice(filename: str, markdown: str) -> tuple[dict, str]:
     """Extract structured fields from invoice markdown. Returns (fields, body)
     WITHOUT persisting — the caller decides how to store it (e.g. after a
-    duplicate check)."""
+    duplicate check). The body is the FULL parsed markdown, so no source detail
+    is lost and any new field can be re-derived later."""
     resp = await chat_completion(
         model=settings.llm_model,
         messages=[
@@ -57,18 +90,15 @@ async def extract_invoice(filename: str, markdown: str) -> tuple[dict, str]:
     )
     raw = json.loads(resp.choices[0].message.content or "{}")
 
-    fields = {
-        "invoice_no": (raw.get("invoice_no") or filename),
-        "invoice_date": raw.get("invoice_date"),
-        "seller_name": raw.get("seller_name"),
-        "seller_state": raw.get("seller_state"),
-        "buyer_name": raw.get("buyer_name"),
-        "buyer_state": raw.get("buyer_state"),
-        "currency": raw.get("currency"),
-        "total_amount": _to_number(raw.get("total_amount")),
-        "tax_amount": _to_number(raw.get("tax_amount")),
-        "source_file": filename,
-    }
-    # Body: the model's line-item summary, falling back to the raw markdown.
-    body = (raw.get("summary") or markdown).strip()
-    return fields, body
+    fields: dict = {key: raw.get(key) for key in _STRINGS}
+    fields["invoice_no"] = fields.get("invoice_no") or filename
+    for key in _NUMERIC:
+        fields[key] = _to_number(raw.get(key))
+    fields["hsn_codes"] = raw.get("hsn_codes") or []
+    fields["line_items"] = raw.get("line_items") or []
+    extra = raw.get("additional_fields")
+    fields["additional_fields"] = extra if isinstance(extra, dict) else {}
+    fields["source_file"] = filename
+
+    # Keep the complete parsed text so nothing useful is ever discarded.
+    return fields, markdown.strip()

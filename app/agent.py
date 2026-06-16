@@ -25,8 +25,9 @@ SYSTEM_PROMPT = (
     "chart. Pass the labels and values returned by aggregate_invoices verbatim.\n"
     "- `list_invoices`: raw fields of every invoice — only for inspecting or "
     "listing, NOT for math.\n"
-    "- `read_invoice(name)`: full detail of one invoice, for line-item or "
-    "specific-invoice questions.\n"
+    "- `read_invoice(name)`: full detail of one invoice (line items, HSN codes, "
+    "GSTINs, PO number, original text) — for line-item or specific-invoice "
+    "questions.\n"
     "\n"
     "Rules:\n"
     "- NEVER add up or compute figures yourself — always call "
@@ -59,7 +60,15 @@ TOOLS = [
                 "properties": {
                     "metric": {
                         "type": "string",
-                        "enum": ["total_amount", "tax_amount", "count"],
+                        "enum": [
+                            "total_amount",
+                            "taxable_value",
+                            "tax_amount",
+                            "cgst",
+                            "sgst",
+                            "igst",
+                            "count",
+                        ],
                     },
                     "group_by": {
                         "type": "string",
