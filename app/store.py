@@ -55,12 +55,34 @@ def _resolve(name: str) -> Path:
     return path
 
 
-def write_invoice(fields: dict, body: str) -> str:
-    """Persist one invoice as ``frontmatter + body`` markdown. The filename is
-    derived from the invoice number. Returns the stored name (without ``.md``)."""
+def find_existing(invoice_no, seller) -> str | None:
+    """Return the stored name of an invoice with the same number AND seller —
+    i.e. a likely duplicate — or None. Lets the caller ask the user whether to
+    replace it or keep both, instead of silently overwriting or double-counting.
+    Different sellers sharing a number are NOT treated as duplicates."""
+    inv = str(invoice_no or "").strip().lower()
+    if not inv or not INVOICE_DIR.exists():
+        return None
+    sel = str(seller or "").strip().lower()
+    for path in INVOICE_DIR.glob("*.md"):
+        front, _ = _parse(path.read_text(encoding="utf-8"))
+        if (
+            str(front.get("invoice_no") or "").strip().lower() == inv
+            and str(front.get("seller_name") or "").strip().lower() == sel
+        ):
+            return path.stem
+    return None
+
+
+def save_invoice(fields: dict, body: str, name: str | None = None) -> str:
+    """Persist one invoice as ``frontmatter + body`` markdown. If ``name`` is
+    given, overwrite that file (a user-confirmed replace); otherwise create a
+    new, non-colliding file. Returns the stored name (without ``.md``)."""
     INVOICE_DIR.mkdir(parents=True, exist_ok=True)
-    stem = _slug(str(fields.get("invoice_no") or "invoice"))
-    path = _unique_path(stem)
+    if name:
+        path = _resolve(name)
+    else:
+        path = _unique_path(_slug(str(fields.get("invoice_no") or "invoice")))
     front = yaml.safe_dump(fields, sort_keys=False, allow_unicode=True).strip()
     path.write_text(f"---\n{front}\n---\n\n{body.strip()}\n", encoding="utf-8")
     return path.stem

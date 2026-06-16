@@ -116,6 +116,19 @@
     </div>
   </div>
 
+  <!-- Duplicate-invoice modal -->
+  <div id="dup-overlay" class="overlay hidden">
+    <div class="modal" role="dialog" aria-modal="true">
+      <p class="modal-text">Possible duplicate invoice</p>
+      <p class="modal-sub" id="dup-sub">This invoice already exists.</p>
+      <div class="modal-actions modal-actions--three">
+        <button class="btn btn--ghost" id="dup-cancel">Cancel</button>
+        <button class="btn btn--ghost" id="dup-keep">Keep both</button>
+        <button class="btn btn--solid" id="dup-replace">Replace</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Invoice preview modal -->
   <div id="preview-overlay" class="overlay hidden">
     <div class="modal modal--preview" role="dialog" aria-modal="true">

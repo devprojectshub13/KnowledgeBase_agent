@@ -30,7 +30,13 @@ from app.sessions import (
     load_transcript,
     session_exists,
 )
-from app.store import delete_invoice, list_invoices, read_invoice
+from app.store import (
+    delete_invoice,
+    find_existing,
+    list_invoices,
+    read_invoice,
+    save_invoice,
+)
 
 
 @asynccontextmanager
@@ -67,9 +73,18 @@ async def health() -> dict:
 
 
 @app.post("/ingest/file", response_model=IngestResponse)
-async def ingest_file(file: UploadFile = File(...)) -> IngestResponse:
+async def ingest_file(
+    file: UploadFile = File(...),
+    on_duplicate: str = Form("ask"),  # ask | replace | keep_both
+) -> IngestResponse:
     """Upload one invoice (PDF/image/DOCX/XLSX/…) → MarkItDown → LLM extraction →
-    stored as a structured markdown invoice."""
+    stored as a structured markdown invoice.
+
+    If an invoice with the same number AND seller already exists, we do NOT
+    silently overwrite or duplicate: with on_duplicate="ask" (default) we return
+    409 with the existing invoice's details so the user can choose to replace it
+    or keep both. on_duplicate="replace" overwrites; "keep_both" stores a copy.
+    """
     filename = file.filename or "invoice"
     if not is_supported(filename):
         raise HTTPException(status_code=415, detail=f"Unsupported file: {filename}")
@@ -77,9 +92,27 @@ async def ingest_file(file: UploadFile = File(...)) -> IngestResponse:
     markdown = await run_in_threadpool(parse_to_markdown, filename, data)
     if not markdown:
         raise HTTPException(status_code=422, detail="No extractable text in file")
-    fields = await extract_invoice(filename, markdown)
+
+    fields, body = await extract_invoice(filename, markdown)
+    existing = find_existing(fields.get("invoice_no"), fields.get("seller_name"))
+
+    if existing and on_duplicate == "ask":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "An invoice with the same number and seller already exists.",
+                "existing_name": existing,
+                "invoice_no": fields.get("invoice_no"),
+                "seller_name": fields.get("seller_name"),
+                "total_amount": fields.get("total_amount"),
+            },
+        )
+
+    name = save_invoice(
+        fields, body, name=existing if on_duplicate == "replace" else None
+    )
     return IngestResponse(
-        name=fields["name"],
+        name=name,
         invoice_no=fields.get("invoice_no"),
         total_amount=fields.get("total_amount"),
         tax_amount=fields.get("tax_amount"),

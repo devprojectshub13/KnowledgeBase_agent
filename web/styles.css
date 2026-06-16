@@ -204,6 +204,15 @@ body {
   color: #b00020;
 }
 
+/* Duplicate dialog: three actions in one row. */
+.modal-actions--three {
+  flex-wrap: wrap;
+}
+.modal-actions--three .btn {
+  flex: 1;
+  min-width: 90px;
+}
+
 .panel {
   background: var(--paper);
   display: flex;

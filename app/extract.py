@@ -7,7 +7,6 @@ import re
 
 from app.config import settings
 from app.llm import chat_completion
-from app.store import write_invoice
 
 _EXTRACT_SYSTEM = (
     "You extract structured data from a single invoice. You are given the "
@@ -43,9 +42,10 @@ def _to_number(value) -> float | None:
         return None
 
 
-async def extract_invoice(filename: str, markdown: str) -> dict:
-    """Extract fields from invoice markdown and store it. Returns the saved
-    frontmatter plus the storage ``name``."""
+async def extract_invoice(filename: str, markdown: str) -> tuple[dict, str]:
+    """Extract structured fields from invoice markdown. Returns (fields, body)
+    WITHOUT persisting — the caller decides how to store it (e.g. after a
+    duplicate check)."""
     resp = await chat_completion(
         model=settings.llm_model,
         messages=[
@@ -71,5 +71,4 @@ async def extract_invoice(filename: str, markdown: str) -> dict:
     }
     # Body: the model's line-item summary, falling back to the raw markdown.
     body = (raw.get("summary") or markdown).strip()
-    name = write_invoice(fields, body)
-    return {"name": name, **fields}
+    return fields, body

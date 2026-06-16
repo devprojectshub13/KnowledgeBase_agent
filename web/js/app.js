@@ -292,6 +292,45 @@ dropzone.addEventListener("drop", (e) => {
   }
 });
 
+// Duplicate dialog → resolves "replace" | "keep_both" | null (cancel).
+function duplicateDialog(info) {
+  return new Promise((resolve) => {
+    const overlay = $("#dup-overlay");
+    $("#dup-sub").textContent =
+      `${info.invoice_no || "This invoice"} from ${info.seller_name || "this seller"} ` +
+      `is already stored. Replace it, or keep both copies?`;
+    overlay.classList.remove("hidden");
+    const replace = $("#dup-replace");
+    const keep = $("#dup-keep");
+    const cancel = $("#dup-cancel");
+    const cleanup = (val) => {
+      overlay.classList.add("hidden");
+      replace.removeEventListener("click", onReplace);
+      keep.removeEventListener("click", onKeep);
+      cancel.removeEventListener("click", onCancel);
+      overlay.removeEventListener("mousedown", onBackdrop);
+      resolve(val);
+    };
+    const onReplace = () => cleanup("replace");
+    const onKeep = () => cleanup("keep_both");
+    const onCancel = () => cleanup(null);
+    const onBackdrop = (e) => e.target === overlay && cleanup(null);
+    replace.addEventListener("click", onReplace);
+    keep.addEventListener("click", onKeep);
+    cancel.addEventListener("click", onCancel);
+    overlay.addEventListener("mousedown", onBackdrop);
+    replace.focus();
+  });
+}
+
+async function uploadOne(file, onDuplicate) {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (onDuplicate) fd.append("on_duplicate", onDuplicate);
+  const r = await fetch("/ingest/file", { method: "POST", body: fd });
+  return { status: r.status, data: await safeJson(r) };
+}
+
 $("#file-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const files = Array.from(fileInput.files || []);
@@ -305,13 +344,22 @@ $("#file-form").addEventListener("submit", async (e) => {
   let ok = 0;
   for (const file of files) {
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const r = await fetch("/ingest/file", { method: "POST", body: fd });
-      const data = await safeJson(r);
-      if (!r.ok) throw new Error(data.detail || "Extraction failed");
+      let res = await uploadOne(file);
+      // 409 → same invoice already stored: ask the user what to do.
+      if (res.status === 409) {
+        const choice = await duplicateDialog(res.data.detail || {});
+        if (!choice) {
+          logIngest(`↪ skipped duplicate ${file.name}`);
+          continue;
+        }
+        res = await uploadOne(file, choice);
+      }
+      if (res.status < 200 || res.status >= 300) {
+        throw new Error(res.data.detail?.message || res.data.detail || "Extraction failed");
+      }
       ok++;
-      logIngest(`✓ ${data.invoice_no || data.name} — ${data.currency || ""} ${formatMoney(data.total_amount)}`);
+      const d = res.data;
+      logIngest(`✓ ${d.invoice_no || d.name} — ${d.currency || ""} ${formatMoney(d.total_amount)}`);
     } catch (err) {
       logIngest(`✕ ${file.name}: ${err.message}`, true);
     }
