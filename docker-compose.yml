@@ -16,5 +16,22 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  app:
+    build: .
+    image: bhutiyalakhan/invoice-agent:latest
+    container_name: invoice-agent
+    ports:
+      - "9001:9001"
+    env_file: .env
+    environment:
+      # Inside the compose network the DB is reachable as host "db".
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/agentvector
+    volumes:
+      - ./invoice_data:/app/invoice_data
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:

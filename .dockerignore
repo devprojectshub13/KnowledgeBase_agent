@@ -1,0 +1,20 @@
+# Secrets — never bake into the image
+.env
+
+# Virtualenv / caches
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+# Local data / VCS
+invoice_data
+storage
+.git
+.gitignore
+
+# Editor / OS
+.vscode
+.idea
+.DS_Store
