@@ -1,41 +1,32 @@
-from pydantic import BaseModel, Field
+from typing import Literal
 
-
-class IngestRequest(BaseModel):
-    document: str = Field(..., description="Logical name/source of the document")
-    content: str = Field(..., min_length=1)
+from pydantic import BaseModel
 
 
 class IngestResponse(BaseModel):
-    document: str
-    chunks_ingested: int
+    name: str
+    invoice_no: str | None = None
+    total_amount: float | None = None
+    tax_amount: float | None = None
+    currency: str | None = None
 
 
-class DocumentSummary(BaseModel):
-    document: str
-    chunks: int
-    filename: str | None = None
-    size: int | None = None
+class AskRequest(BaseModel):
+    question: str
+    session_id: str | None = None
 
 
-class SearchHit(BaseModel):
-    document: str
-    chunk_index: int
-    content: str
-    score: float
-
-
-class AttachmentOut(BaseModel):
-    id: str
-    filename: str
-    size: int
+class ChartSpec(BaseModel):
+    type: Literal["pie", "line", "bar"]
+    title: str
+    labels: list[str]
+    values: list[float]
 
 
 class AskResponse(BaseModel):
     answer: str
-    sources: list[SearchHit]
+    chart: ChartSpec | None = None
     session_id: str | None = None
-    attachment: AttachmentOut | None = None
 
 
 class SessionResponse(BaseModel):

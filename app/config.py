@@ -5,8 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # LLM (OpenAI) — used for the chat agent and semantic chunking.
-    # Uses its own key, separate from the embeddings key below.
+    # LLM (OpenAI) — used for invoice extraction and the query agent.
     llm_api_key: str = Field(validation_alias="LLM_API_KEY")
     llm_model: str = "gpt-4o-mini"
 
@@ -14,32 +13,19 @@ class Settings(BaseSettings):
     llm_max_retries: int = 5
     llm_max_retry_wait: float = 35.0
 
-    # Semantic chunking
-    semantic_chunk_max_tokens: int = 4000  # window size fed to the LLM per call
-    chunk_target_tokens: int = 350  # rough size the LLM aims for per chunk
+    # Where extracted invoice markdown files are stored (one file per invoice).
+    invoice_dir: str = "invoice_data"
 
-    # Embeddings (OpenAI)
-    openai_api_key: str
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dim: int = 1536
-
-    # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agentvector"
-
-    # Where original uploaded files are stored on disk (for download)
-    storage_dir: str = "storage"
-
-    # Max characters of a chat-attached file inlined into the prompt (the rest
-    # is truncated with a notice, to stay within the LLM token budget). These
-    # attachments are session-only context — never ingested into the KB.
-    attachment_char_limit: int = 12000
-
-    # Retrieval
-    top_k: int = 5
-    context_char_limit: int = 900  # max chars per chunk sent to the LLM
+    # Database (Postgres) — only conversation sessions/messages live here.
+    database_url: str = (
+        "postgresql+asyncpg://postgres:postgres@localhost:9432/agentvector"
+    )
 
     # Conversation sessions
     history_turns: int = 6  # how many prior user/assistant turns to replay
+
+    # Cap on how much of a single invoice file is fed to the agent per read.
+    read_char_limit: int = 8000
 
 
 settings = Settings()

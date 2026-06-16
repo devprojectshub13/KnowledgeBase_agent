@@ -4,8 +4,7 @@ from openai import AsyncOpenAI, RateLimitError
 
 from app.config import settings
 
-# Shared OpenAI client for the semantic chunker and chat/retrieval agent.
-# Uses the dedicated LLM key (separate from the embeddings key).
+# Shared OpenAI client for invoice extraction and the query agent.
 llm = AsyncOpenAI(api_key=settings.llm_api_key)
 
 

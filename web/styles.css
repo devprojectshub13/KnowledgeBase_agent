@@ -76,6 +76,49 @@ body {
   gap: 0;
 }
 
+/* Invoice app: two panels (Invoices | Ask). */
+.layout--two {
+  grid-template-columns: 380px 1fr;
+}
+
+/* Sample-question chips on the empty state. */
+.samples {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+  width: 100%;
+  max-width: 420px;
+}
+.sample {
+  font-family: "Inter", sans-serif;
+  font-size: 0.82rem;
+  text-align: left;
+  padding: 9px 12px;
+  background: var(--paper);
+  border: 1.5px solid var(--line-faint);
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.sample:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+/* Rendered chart container inside an assistant message. */
+.chart-box {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1.5px solid var(--line-faint);
+  background: var(--paper);
+  max-width: 540px;
+}
+.chart-box canvas {
+  width: 100% !important;
+  height: auto !important;
+}
+
 .panel {
   background: var(--paper);
   display: flex;

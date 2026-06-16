@@ -1,7 +1,7 @@
 [project]
-name = "agent-vector"
+name = "invoice-agent"
 version = "0.1.0"
-description = "Semantic ingestion + retrieval agent (FastAPI, pgvector, OpenAI embeddings + LLM)"
+description = "Invoice analytics agent — extract invoices to markdown, query and chart them with an LLM tool agent (FastAPI, OpenAI)"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -10,11 +10,10 @@ dependencies = [
     "pydantic-settings>=2.6",
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.30",
-    "pgvector>=0.3.6",
     "openai>=1.54",
-    "tiktoken>=0.8",
     "python-multipart>=0.0.12",
     "markitdown[pdf,docx,pptx,xlsx]>=0.1.1",
+    "pyyaml>=6.0",
 ]
 
 [tool.uv]
