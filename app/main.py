@@ -1,4 +1,5 @@
 import asyncio
+import mimetypes
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,8 +37,10 @@ from app.store import (
     delete_invoice,
     find_existing,
     list_invoices,
+    original_path,
     read_invoice,
     save_invoice,
+    save_original,
 )
 
 
@@ -113,6 +116,7 @@ async def ingest_file(
     name = save_invoice(
         fields, body, name=existing if on_duplicate == "replace" else None
     )
+    save_original(name, filename, data)  # keep the original for preview
     return IngestResponse(
         name=name,
         invoice_no=fields.get("invoice_no"),
@@ -164,6 +168,7 @@ async def ingest_files(
             name = save_invoice(
                 fields, body, name=existing if on_duplicate == "replace" else None
             )
+            save_original(name, fn, data)  # keep the original for preview
         return {
             "filename": fn,
             "status": "stored",
@@ -194,6 +199,17 @@ async def invoice_detail(name: str) -> dict:
     if content is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
     return {"name": name, "content": content}
+
+
+@app.api_route("/invoices/{name}/original", methods=["GET", "HEAD"])
+async def invoice_original(name: str):
+    """Serve the original uploaded document (PDF/image/…) for inline preview.
+    HEAD is supported so the UI can cheaply check if an original exists."""
+    path = original_path(name)
+    if path is None or not path.exists():
+        raise HTTPException(status_code=404, detail="Original file not available")
+    media = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media, filename=path.name)
 
 
 @app.delete("/invoices/{name}", status_code=204)

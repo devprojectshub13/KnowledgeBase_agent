@@ -87,18 +87,15 @@
         </div>
       </div>
 
-      <!-- Persistent suggestions (always visible) -->
-      <div class="samples-bar" id="samples">
-        <button class="sample">Give total tax amount from all invoices</button>
-        <button class="sample">State wise sales pie chart</button>
-        <button class="sample">Company growth line chart by month by sales</button>
-      </div>
+      <!-- Suggestions + the client's saved questions (always visible) -->
+      <div class="samples-bar" id="samples"></div>
 
       <form id="ask-form" class="composer">
         <div class="composer-main">
           <textarea id="ask-input" class="composer-input" rows="1" placeholder="Ask about your invoices…"
             autocomplete="off"></textarea>
         </div>
+        <button id="save-q" class="btn btn--ghost composer-btn" type="button" title="Save this question">★ Save</button>
         <button id="ask-btn" class="btn btn--solid composer-btn" type="submit">Send</button>
       </form>
     </section>

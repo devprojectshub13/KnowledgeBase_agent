@@ -15,6 +15,29 @@ import yaml
 from app.config import settings
 
 INVOICE_DIR = Path(settings.invoice_dir).resolve()
+# Original uploaded files (PDF/image/…) kept so the user can preview the real
+# document behind an answer, not just the extracted data.
+ORIGINALS_DIR = INVOICE_DIR / "originals"
+
+
+def save_original(name: str, filename: str, data: bytes) -> str:
+    """Persist the original uploaded file next to its extracted invoice, keyed by
+    the invoice's stored name. Returns the stored filename."""
+    ORIGINALS_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(filename).suffix.lower() or ".bin"
+    path = ORIGINALS_DIR / f"{name}{ext}"
+    path.write_bytes(data)
+    return path.name
+
+
+def original_path(name: str) -> Path | None:
+    """Path to the original uploaded file for an invoice, or None if not kept."""
+    stem = Path(name).stem
+    if not ORIGINALS_DIR.exists():
+        return None
+    for path in ORIGINALS_DIR.glob(f"{stem}.*"):
+        return path
+    return None
 
 # Numeric frontmatter fields the agent can total/chart (the metric enum).
 NUMERIC_FIELDS = ["taxable_value", "tax_amount", "total_amount", "cgst", "sgst", "igst"]
@@ -217,4 +240,7 @@ def delete_invoice(name: str) -> bool:
     if not path.exists():
         return False
     path.unlink()
+    orig = original_path(name)
+    if orig:
+        orig.unlink(missing_ok=True)
     return True

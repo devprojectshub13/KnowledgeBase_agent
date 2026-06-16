@@ -245,13 +245,49 @@ async function openPreview(name, label) {
   const body = $("#preview-body");
   body.innerHTML = `<div class="preview-loading">Loading…</div>`;
   overlay.classList.remove("hidden");
+
+  const origUrl = `/invoices/${encodeURIComponent(name)}/original`;
+  let hasOrig = false;
   try {
-    const r = await fetch(`/invoices/${encodeURIComponent(name)}`);
-    const data = await safeJson(r);
-    if (!r.ok) throw new Error(data.detail || "Not found");
-    body.innerHTML = renderMarkdown("```yaml\n" + (data.content || "") + "\n```");
-  } catch (err) {
-    body.innerHTML = `<div class="preview-loading err">${escapeHtml(err.message)}</div>`;
+    hasOrig = (await fetch(origUrl, { method: "HEAD" })).ok;
+  } catch {
+    /* offline */
+  }
+
+  body.innerHTML =
+    `<div class="preview-tabs">` +
+    (hasOrig ? `<button class="ptab" id="tab-orig">Original document</button>` : "") +
+    `<button class="ptab" id="tab-data">Extracted data</button>` +
+    (hasOrig ? `<a class="ptab ptab--dl" href="${origUrl}" download>Download</a>` : "") +
+    `</div><div class="preview-pane" id="preview-pane"></div>`;
+
+  const pane = $("#preview-pane");
+  const setActive = (id) =>
+    body.querySelectorAll(".ptab").forEach((b) => b.classList.toggle("active", b.id === id));
+
+  const showOriginal = () => {
+    pane.innerHTML = `<iframe class="preview-frame" src="${origUrl}" title="${escapeHtml(label || name)}"></iframe>`;
+    setActive("tab-orig");
+  };
+  const showData = async () => {
+    pane.innerHTML = `<div class="preview-loading">Loading…</div>`;
+    try {
+      const r = await fetch(`/invoices/${encodeURIComponent(name)}`);
+      const d = await safeJson(r);
+      if (!r.ok) throw new Error(d.detail || "Not found");
+      pane.innerHTML = renderMarkdown("```yaml\n" + (d.content || "") + "\n```");
+    } catch (err) {
+      pane.innerHTML = `<div class="preview-loading err">${escapeHtml(err.message)}</div>`;
+    }
+    setActive("tab-data");
+  };
+
+  $("#tab-data").addEventListener("click", showData);
+  if (hasOrig) {
+    $("#tab-orig").addEventListener("click", showOriginal);
+    showOriginal(); // default to the real document
+  } else {
+    showData();
   }
 }
 
@@ -633,10 +669,71 @@ $("#ask-form").addEventListener("submit", (e) => {
   sendQuestion(askInput.value.trim());
 });
 
-/* ---------- persistent sample chips ---------- */
-document.querySelectorAll(".sample").forEach((b) =>
-  b.addEventListener("click", () => sendQuestion(b.textContent.trim()))
-);
+/* ---------- suggestions + saved questions ---------- */
+const SAVED_KEY = "invoice-agent.saved";
+const DEFAULT_SAMPLES = [
+  "Give total tax amount from all invoices",
+  "State wise sales pie chart",
+  "Company growth line chart by month by sales",
+];
+
+function getSaved() {
+  try {
+    return JSON.parse(localStorage.getItem(SAVED_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+function setSaved(list) {
+  localStorage.setItem(SAVED_KEY, JSON.stringify(list));
+}
+
+function saveQuestion(text) {
+  text = (text || "").trim();
+  if (!text) return;
+  const list = getSaved();
+  if (list.includes(text) || DEFAULT_SAMPLES.includes(text)) return; // no dupes
+  list.unshift(text);
+  setSaved(list);
+  renderSamples();
+}
+function deleteSaved(text) {
+  setSaved(getSaved().filter((q) => q !== text));
+  renderSamples();
+}
+
+function renderSamples() {
+  const bar = $("#samples");
+  bar.innerHTML = "";
+  // Client's saved questions first (deletable), then the built-in samples.
+  getSaved().forEach((q) => {
+    const chip = document.createElement("span");
+    chip.className = "saved-chip";
+    const ask = document.createElement("button");
+    ask.className = "sample";
+    ask.textContent = q;
+    ask.addEventListener("click", () => sendQuestion(q));
+    const del = document.createElement("button");
+    del.className = "saved-x";
+    del.textContent = "×";
+    del.title = "Delete saved question";
+    del.addEventListener("click", () => deleteSaved(q));
+    chip.append(ask, del);
+    bar.appendChild(chip);
+  });
+  DEFAULT_SAMPLES.forEach((q) => {
+    const b = document.createElement("button");
+    b.className = "sample";
+    b.textContent = q;
+    b.addEventListener("click", () => sendQuestion(q));
+    bar.appendChild(b);
+  });
+}
+
+$("#save-q").addEventListener("click", () => {
+  saveQuestion(askInput.value);
+  askInput.focus();
+});
 
 /* ---------- new chat ---------- */
 $("#new-chat").addEventListener("click", () => {
@@ -667,6 +764,7 @@ async function restoreSession() {
 
 /* ---------- init ---------- */
 setSessionLabel();
+renderSamples();
 restoreSession();
 loadSessions();
 loadInvoices();

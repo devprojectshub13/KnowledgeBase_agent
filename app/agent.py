@@ -13,9 +13,10 @@ SYSTEM_PROMPT = (
     "Tools:\n"
     "- `aggregate_invoices(metric, group_by, where)`: the ONLY correct way to "
     "get totals, counts, and breakdowns — it computes exact numbers for you. "
-    "metric is total_amount | tax_amount | count. group_by is omitted for a "
-    "grand total, or one of buyer_state, seller_state, currency, month. `where` "
-    "restricts to a subset via equality filters. "
+    "metric is total_amount | taxable_value | tax_amount | cgst | sgst | igst | "
+    "count. group_by can be ANY invoice field (buyer_state, seller_state, "
+    "buyer_city, buyer_name, currency, …) or 'month', or omit it for a grand "
+    "total. `where` restricts to a subset via equality filters on any field. "
     'For "sales by state" use metric=total_amount, group_by=buyer_state (the '
     'place of supply). For "monthly growth" use group_by=month. For a question '
     'about ONE state over time (e.g. "Karnataka by month") you MUST filter: '
@@ -72,22 +73,21 @@ TOOLS = [
                     },
                     "group_by": {
                         "type": "string",
-                        "enum": ["buyer_state", "seller_state", "currency", "month"],
-                        "description": "Omit for a grand total.",
+                        "description": (
+                            "Any invoice field to break the result down by — e.g. "
+                            "buyer_state, seller_state, buyer_city, seller_city, "
+                            "buyer_name, currency, or 'month' (groups invoice_date "
+                            "by yyyy-mm). Omit for a grand total."
+                        ),
                     },
                     "where": {
                         "type": "object",
                         "description": (
-                            "Optional equality filters to restrict which invoices "
-                            "are included, e.g. {\"buyer_state\": \"Karnataka\"} or "
-                            "{\"month\": \"2026-02\"}."
+                            "Optional equality filters on any field(s), e.g. "
+                            '{"buyer_state": "Karnataka"} or {"month": "2026-02"} '
+                            'or {"buyer_city": "Ahmedabad"}.'
                         ),
-                        "properties": {
-                            "buyer_state": {"type": "string"},
-                            "seller_state": {"type": "string"},
-                            "currency": {"type": "string"},
-                            "month": {"type": "string", "description": "yyyy-mm"},
-                        },
+                        "additionalProperties": {"type": "string"},
                     },
                 },
                 "required": ["metric"],

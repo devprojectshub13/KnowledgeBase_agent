@@ -17,8 +17,9 @@ _EXTRACT_SYSTEM = (
     "reference/challan number. If unsure, pick the value next to 'Invoice No'.)\n"
     "- invoice_date (ISO yyyy-mm-dd; convert from any format)\n"
     "- due_date (ISO yyyy-mm-dd or null)\n"
-    "- seller_name, seller_state, seller_gstin (strings)\n"
-    "- buyer_name, buyer_state (the 'place of supply'), buyer_gstin (strings)\n"
+    "- seller_name, seller_state, seller_city, seller_gstin (strings)\n"
+    "- buyer_name, buyer_state (the 'place of supply'), buyer_city, "
+    "buyer_gstin (strings)\n"
     "- currency (ISO code like INR/USD/EUR; infer from symbols)\n"
     "- taxable_value (number — total amount BEFORE tax / sum of taxable values)\n"
     "- cgst, sgst, igst (numbers or null — the tax components)\n"
@@ -53,9 +54,11 @@ _STRINGS = [
     "due_date",
     "seller_name",
     "seller_state",
+    "seller_city",
     "seller_gstin",
     "buyer_name",
     "buyer_state",
+    "buyer_city",
     "buyer_gstin",
     "currency",
     "po_number",

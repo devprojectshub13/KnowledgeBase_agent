@@ -275,6 +275,60 @@ body {
   color: #b00020;
 }
 
+/* Preview modal: Original document / Extracted data tabs. */
+.preview-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ptab {
+  font-family: "Inter", sans-serif;
+  font-size: 0.78rem;
+  padding: 5px 11px;
+  background: var(--paper);
+  border: 1.5px solid var(--line-faint);
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-decoration: none;
+}
+.ptab.active {
+  border-color: var(--line);
+  color: var(--ink);
+}
+.ptab--dl {
+  margin-left: auto;
+}
+.preview-frame {
+  width: 100%;
+  height: 62vh;
+  border: 1.5px solid var(--line-faint);
+  background: #fafafa;
+}
+
+/* Saved-question chip with a delete button. */
+.saved-chip {
+  display: inline-flex;
+  align-items: stretch;
+}
+.saved-chip .sample {
+  border-right: none;
+}
+.saved-x {
+  font-family: "Inter", sans-serif;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 8px;
+  background: var(--paper);
+  border: 1.5px solid var(--line-faint);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.saved-x:hover {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
 /* Duplicate dialog: three actions in one row. */
 .modal-actions--three {
   flex-wrap: wrap;
