@@ -209,7 +209,7 @@ async def invoice_original(name: str):
     if path is None or not path.exists():
         raise HTTPException(status_code=404, detail="Original file not available")
     media = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    return FileResponse(path, media_type=media, filename=path.name)
+    return FileResponse(path, media_type=media, content_disposition_type="inline")
 
 
 @app.delete("/invoices/{name}", status_code=204)

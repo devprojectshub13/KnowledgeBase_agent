@@ -76,14 +76,24 @@ body {
   gap: 0;
 }
 
-/* Persistent suggestion chips — always shown above the composer. */
+/* ---------- Suggestion + saved bars (above composer) ---------- */
+.suggestions,
 .samples-bar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   padding: 10px 22px 0;
 }
-.sample {
+.suggestions-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 2px;
+}
+.suggestion {
   font-family: "Inter", sans-serif;
   font-size: 0.78rem;
   text-align: left;
@@ -94,7 +104,7 @@ body {
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
 }
-.sample:hover {
+.suggestion:hover {
   border-color: var(--line);
   color: var(--ink);
 }
@@ -124,6 +134,7 @@ body {
   margin-top: 10px;
 }
 .src-label {
+  margin: 0;
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -230,6 +241,7 @@ body {
 /* Invoice preview modal. */
 .modal--preview {
   width: min(680px, 92vw);
+  max-width: min(680px, 92vw);
   max-height: 82vh;
   display: flex;
   flex-direction: column;
@@ -262,11 +274,58 @@ body {
 .preview-modal-body {
   overflow: auto;
   font-size: 0.85rem;
+  line-height: 1.65;
 }
 .preview-modal-body pre {
   white-space: pre-wrap;
   word-break: break-word;
+  background: var(--field);
+  border: 1.5px solid var(--line-faint);
+  padding: 12px;
+  overflow-x: auto;
+  margin: 10px 0;
 }
+.preview-modal-body pre code { background: none; border: none; padding: 0; }
+.preview-modal-body code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--field);
+  padding: 1px 5px;
+  border: 1px solid var(--line-faint);
+}
+.preview-modal-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.preview-modal-body th, .preview-modal-body td {
+  border: 1px solid var(--line-faint);
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.preview-modal-body th { background: var(--field); font-weight: 600; }
+.preview-modal-body tr:nth-child(even) td { background: var(--field); }
+.preview-modal-body p { margin: 0 0 10px; }
+.preview-modal-body p:last-child { margin-bottom: 0; }
+.preview-modal-body ul, .preview-modal-body ol { margin: 8px 0; padding-left: 20px; }
+.preview-modal-body li { margin: 3px 0; }
+.preview-modal-body h1, .preview-modal-body h2, .preview-modal-body h3 {
+  font-family: var(--serif);
+  margin: 16px 0 8px;
+}
+.preview-modal-body h1 { font-size: 1.3rem; }
+.preview-modal-body h2 { font-size: 1.1rem; }
+.preview-modal-body h3 { font-size: 0.95rem; }
+.preview-modal-body blockquote {
+  border-left: 2.5px solid var(--line-faint);
+  margin: 8px 0;
+  padding-left: 12px;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.preview-modal-body strong { font-weight: 600; }
 .preview-loading {
   color: var(--ink-soft);
   font-size: 0.85rem;
@@ -310,7 +369,7 @@ body {
   display: inline-flex;
   align-items: stretch;
 }
-.saved-chip .sample {
+.saved-chip .suggestion {
   border-right: none;
 }
 .saved-x {
@@ -329,13 +388,17 @@ body {
   border-color: var(--ink);
 }
 
-/* Duplicate dialog: three actions in one row. */
+/* Duplicate dialog: three actions in one row. Slightly wider modal so the
+   buttons aren't cramped. */
 .modal-actions--three {
   flex-wrap: wrap;
 }
 .modal-actions--three .btn {
   flex: 1;
   min-width: 90px;
+}
+#dup-overlay .modal {
+  max-width: 460px;
 }
 
 .panel {
@@ -435,7 +498,7 @@ body {
 .modal {
   background: var(--paper);
   border: 1.5px solid var(--line);
-  max-width: 380px;
+  max-width: 550px;
   width: calc(100% - 48px);
   padding: 26px 26px 22px;
   animation: pop 0.16s ease;
@@ -976,6 +1039,8 @@ a.msg-file:hover { border-color: var(--ink); }
   border-color: var(--paper);
 }
 .msg--user .copy-btn:hover { background: var(--paper); color: var(--ink); }
+
+/* ---------- Inline source-preview cards (from old Agent · Vector) ---------- */
 .preview { margin-top: 10px; border: 1.5px solid var(--line-faint); }
 .preview-head {
   display: flex; align-items: center; gap: 8px;
@@ -1000,13 +1065,13 @@ a.msg-file:hover { border-color: var(--ink); }
 }
 .preview-loading.err { color: var(--ink-soft); }
 .preview-actions { display: flex; gap: 8px; padding: 8px 12px; }
-.preview-toggle, .preview-dl {
+.preview-toggle, .preview-dl, .preview-open {
   font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
   text-transform: uppercase; padding: 5px 12px; cursor: pointer;
   border: 1.5px solid var(--line-faint); background: var(--paper);
   color: var(--ink-soft); text-decoration: none;
 }
-.preview-toggle:hover, .preview-dl:hover {
+.preview-toggle:hover, .preview-dl:hover, .preview-open:hover {
   background: var(--ink); color: var(--paper); border-color: var(--ink);
 }
 .preview-doc, .preview-pre { max-height: 420px; overflow: auto; padding: 14px 16px; }

@@ -57,6 +57,11 @@ function formatMoney(n) {
   return Number(n).toLocaleString();
 }
 
+function extOf(name) {
+  const m = /\.([^.]+)$/.exec(name);
+  return m ? m[1].toLowerCase() : "";
+}
+
 /* ---------- connection status ---------- */
 async function ping() {
   const dot = $("#status-dot");
@@ -146,6 +151,7 @@ async function loadSessions() {
 
 async function switchSession(id) {
   if (id === sessionId) return;
+  hideSuggestions();
   sessionId = id;
   localStorage.setItem(SESSION_KEY, id);
   setSessionLabel();
@@ -275,7 +281,9 @@ async function openPreview(name, label) {
       const r = await fetch(`/invoices/${encodeURIComponent(name)}`);
       const d = await safeJson(r);
       if (!r.ok) throw new Error(d.detail || "Not found");
-      pane.innerHTML = renderMarkdown("```yaml\n" + (d.content || "") + "\n```");
+      const html = renderMarkdown(d.content || "");
+      pane.innerHTML = `<div class="preview-doc">${html}</div>`;
+      enhanceCopyable(pane);
     } catch (err) {
       pane.innerHTML = `<div class="preview-loading err">${escapeHtml(err.message)}</div>`;
     }
@@ -436,17 +444,25 @@ $("#file-form").addEventListener("submit", async (e) => {
 
 /* ---------- chat ---------- */
 const thread = $("#thread");
-const EMPTY_STATE_HTML = $("#empty-state").outerHTML;
+
+function buildEmptyStateHTML() {
+  return `<div class="empty-state" id="empty-state">` +
+    `<div class="empty-mark">₹</div>` +
+    `<p>Ask about your invoices — totals, tax, and charts.</p>` +
+    `</div>`;
+}
 
 function clearEmptyState() {
-  $("#empty-state")?.remove();
+  const empty = $("#empty-state");
+  if (empty) empty.remove();
 }
 
 function resetThread() {
   sessionId = null;
   localStorage.removeItem(SESSION_KEY);
   setSessionLabel();
-  thread.innerHTML = EMPTY_STATE_HTML;
+  thread.innerHTML = buildEmptyStateHTML();
+  renderSuggestions();
 }
 
 function addMessage(role, text, chart, sources, aggregated) {
@@ -464,8 +480,18 @@ function addMessage(role, text, chart, sources, aggregated) {
     body.className = "msg-body";
     body.innerHTML = renderMarkdown(text);
     wrap.append(body);
+    enhanceCopyable(body);
   }
   if (chart) wrap.append(buildChart(chart));
+
+  // Inline preview cards for the top-3 source invoices (assistant only).
+  // The old project's score filter doesn't apply here — `sources` is already
+  // a deduped list of invoice names without scores — so we just cap at 3.
+  if (role === "assistant" && sources && sources.length) {
+    sources.slice(0, 3).forEach((name, i) => {
+      wrap.appendChild(buildSourcePreview(name, i + 1));
+    });
+  }
   if (sources && sources.length) wrap.append(buildSources(sources));
   if (aggregated && aggregated.length) wrap.append(buildAggregated(aggregated));
 
@@ -488,7 +514,7 @@ function srcChip(name) {
 function buildSources(names) {
   const box = document.createElement("div");
   box.className = "src-chips";
-  box.innerHTML = `<span class="src-label">Used:</span>`;
+  box.innerHTML = `<p class="src-label">Used:</p>`;
   names.forEach((n) => box.appendChild(srcChip(n)));
   return box;
 }
@@ -509,6 +535,132 @@ function buildAggregated(names) {
   });
   box.append(toggle, list);
   return box;
+}
+
+/* ---------- source invoice preview cards (file-type-aware) ---------- */
+// Ported from the old Agent · Vector project: chunk-preview inline cards that
+// lazily fetch a source and render it differently based on file extension.
+const PREVIEW_KIND = {
+  pdf: "frame", html: "frame", htm: "frame",
+  png: "frame", jpg: "frame", jpeg: "frame", gif: "frame", webp: "frame",
+  md: "markdown", markdown: "markdown",
+  txt: "text", log: "text", json: "text",
+  csv: "csv", tsv: "csv",
+};
+
+function buildSourcePreview(name, rank) {
+  const box = document.createElement("div");
+  box.className = "preview";
+  const origUrl = `/invoices/${encodeURIComponent(name)}/original`;
+
+  box.innerHTML =
+    `<div class="preview-head">` +
+    `<span class="preview-label">Source ${rank}</span>` +
+    `<span class="preview-name">${escapeHtml(name)}</span></div>` +
+    `<div class="preview-body"></div>` +
+    `<div class="preview-actions">` +
+    `<button type="button" class="preview-toggle">Preview</button>` +
+    `<button type="button" class="preview-open" title="Open in modal">Open</button>` +
+    `<a class="preview-dl" href="${origUrl}" download>Download</a></div>`;
+
+  const body = box.querySelector(".preview-body");
+  const toggle = box.querySelector(".preview-toggle");
+  let loaded = false;
+
+  toggle.addEventListener("click", async () => {
+    const open = body.classList.toggle("open");
+    toggle.textContent = open ? "Hide" : "Preview";
+    if (!open || loaded) return;
+    loaded = true;
+    try {
+      await renderSourcePreview(body, name, origUrl);
+    } catch {
+      loaded = false;
+      body.innerHTML =
+        `<div class="preview-loading err">Couldn't load preview. ` +
+        `<a href="${origUrl}" download>Download instead</a></div>`;
+    }
+  });
+
+  box.querySelector(".preview-open").addEventListener("click", () => openPreview(name, name));
+  return box;
+}
+
+async function renderSourcePreview(body, name, origUrl) {
+  const ext = extOf(name);
+  const kind = PREVIEW_KIND[ext];
+
+  // Office/binary types we can't render inline — fall back to the extracted
+  // YAML so the user still sees the structured data the agent read.
+  if (!kind) {
+    body.innerHTML = `<div class="preview-loading">Loading extracted data…</div>`;
+    const r = await fetch(`/invoices/${encodeURIComponent(name)}`);
+    const d = await safeJson(r);
+    if (!r.ok) throw new Error();
+    const html = renderMarkdown(d.content || "");
+    body.innerHTML = `<div class="preview-doc">${html}</div>`;
+    enhanceCopyable(body);
+    return;
+  }
+
+  body.innerHTML = `<div class="preview-loading">Loading…</div>`;
+  const r = await fetch(origUrl);
+  if (!r.ok) throw new Error();
+
+  if (kind === "frame") {
+    const url = URL.createObjectURL(await r.blob());
+    const frame = document.createElement("iframe");
+    frame.className = "preview-frame";
+    frame.title = name;
+    frame.src = ext === "pdf" ? `${url}#toolbar=0&view=FitH` : url;
+    body.innerHTML = "";
+    body.appendChild(frame);
+    return;
+  }
+
+  const text = await r.text();
+  if (kind === "markdown") {
+    body.innerHTML = `<div class="preview-doc">${renderMarkdown(text)}</div>`;
+  } else if (kind === "csv") {
+    const delim = ext === "tsv" ? "\t" : ",";
+    body.innerHTML = `<div class="preview-doc">${csvToTable(text, delim)}</div>`;
+  } else {
+    const pre = document.createElement("pre");
+    pre.className = "preview-pre";
+    pre.textContent = text;
+    body.innerHTML = "";
+    body.appendChild(pre);
+  }
+}
+
+// Minimal RFC-4180-ish CSV parser (handles quotes and embedded commas/newlines).
+function parseCSV(text, delim) {
+  const rows = [];
+  let row = [], field = "", inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQ = false;
+      } else field += c;
+    } else if (c === '"') inQ = true;
+    else if (c === delim) { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c !== "\r") field += c;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function csvToTable(text, delim) {
+  const rows = parseCSV(text, delim).slice(0, 200); // cap for big files
+  if (!rows.length) return "";
+  const head = rows[0].map((c) => `<th>${escapeHtml(c)}</th>`).join("");
+  const bodyRows = rows.slice(1)
+    .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`)
+    .join("");
+  return `<table class="preview-table"><thead><tr>${head}</tr></thead><tbody>${bodyRows}</tbody></table>`;
 }
 
 /* ---------- charts ---------- */
@@ -633,6 +785,7 @@ askInput.addEventListener("keydown", (e) => {
 
 async function sendQuestion(question) {
   if (!question) return;
+  hideSuggestions();
   addMessage("user", question);
   askInput.value = "";
   askInput.style.height = "auto";
@@ -670,12 +823,105 @@ $("#ask-form").addEventListener("submit", (e) => {
 });
 
 /* ---------- suggestions + saved questions ---------- */
-const SAVED_KEY = "invoice-agent.saved";
-const DEFAULT_SAMPLES = [
+
+const QUESTIONS_CSV_URL = "/static/questions.csv";
+const SUGGESTION_COUNT = 3;
+
+// Defensive fallback so the UI never looks empty if questions.csv is missing
+// or malformed. Logged to console.warn so dev doesn't silently get fooled.
+const FALLBACK_SAMPLES = [
   "Give total tax amount from all invoices",
   "State wise sales pie chart",
   "Company growth line chart by month by sales",
 ];
+
+let csvQuestions = [];
+
+function parseQuestionsCsv(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) =>
+      line.startsWith('"') && line.endsWith('"')
+        ? line.slice(1, -1).replace(/""/g, '"')
+        : line
+    )
+    .filter((line) => !/^questions?$/i.test(line));
+}
+
+async function loadCsvQuestions() {
+  try {
+    const r = await fetch(QUESTIONS_CSV_URL);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    csvQuestions = parseQuestionsCsv(await r.text());
+    if (!csvQuestions.length) throw new Error("empty");
+  } catch (err) {
+    console.warn(`[suggestions] questions.csv unavailable (${err.message}); using fallback samples.`);
+    csvQuestions = FALLBACK_SAMPLES.slice();
+  }
+}
+
+function pickRandom(arr, n) {
+  const pool = arr.slice();
+  const out = [];
+  while (pool.length && out.length < n) {
+    const i = Math.floor(Math.random() * pool.length);
+    out.push(pool.splice(i, 1)[0]);
+  }
+  return out;
+}
+
+function sampleChip(q) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "suggestion";
+  b.textContent = q;
+  b.addEventListener("click", () => {
+    askInput.value = q;
+    askInput.dispatchEvent(new Event("input")); // auto-grow textarea
+    askInput.focus();
+  });
+  return b;
+}
+
+// Render the 3 random onboarding chips into the bar above the composer.
+// Only shown when there's no active session; hidden once a question is sent.
+function renderSuggestions() {
+  const box = $("#suggestions");
+  if (!box) return;
+  // Don't show in the middle of an active conversation.
+  if (sessionId) {
+    hideSuggestions();
+    return;
+  }
+  if (!csvQuestions.length) {
+    hideSuggestions();
+    return;
+  }
+  box.innerHTML = "";
+  const label = document.createElement("span");
+  label.className = "suggestions-label";
+  label.textContent = "Try asking";
+  box.appendChild(label);
+  pickRandom(csvQuestions, SUGGESTION_COUNT).forEach((q) => box.appendChild(sampleChip(q)));
+  box.classList.remove("hidden");
+}
+
+function hideSuggestions() {
+  const box = $("#suggestions");
+  if (!box) return;
+  box.classList.add("hidden");
+  box.innerHTML = "";
+}
+
+// Row 2 — the user's own saved questions, kept across sessions via localStorage.
+const SAVED_KEY = "invoice-agent.saved";
+// Flip to true once a backend route exists at /save_question that persists
+// saved questions to /static/user_question.csv. Until then, keep it false so
+// devtools doesn't fill with 404s on every star-save.
+const SYNC_SAVED_TO_SERVER = false;
+const SAVE_QUESTION_ENDPOINT = "/save_question";
 
 function getSaved() {
   try {
@@ -688,45 +934,60 @@ function setSaved(list) {
   localStorage.setItem(SAVED_KEY, JSON.stringify(list));
 }
 
-function saveQuestion(text) {
+// Best-effort write to the backend; guarded so it doesn't fire until the
+// endpoint actually exists.
+async function persistSavedQuestion(text) {
+  if (!SYNC_SAVED_TO_SERVER) return;
+  try {
+    await fetch(SAVE_QUESTION_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: text }),
+    });
+  } catch {
+    /* network down — localStorage already has it, that's enough */
+  }
+}
+
+async function saveQuestion(text) {
   text = (text || "").trim();
   if (!text) return;
   const list = getSaved();
-  if (list.includes(text) || DEFAULT_SAMPLES.includes(text)) return; // no dupes
+  if (list.includes(text) || csvQuestions.includes(text)) return; // no dupes
   list.unshift(text);
   setSaved(list);
-  renderSamples();
+  renderSaved();
+  persistSavedQuestion(text);
 }
 function deleteSaved(text) {
   setSaved(getSaved().filter((q) => q !== text));
-  renderSamples();
+  renderSaved();
 }
 
-function renderSamples() {
-  const bar = $("#samples");
+function renderSaved() {
+  const bar = $("#saved-bar");
+  const saved = getSaved();
   bar.innerHTML = "";
-  // Client's saved questions first (deletable), then the built-in samples.
-  getSaved().forEach((q) => {
+  if (!saved.length) {
+    bar.classList.add("hidden");
+    return;
+  }
+  bar.classList.remove("hidden");
+  const label = document.createElement("span");
+  label.className = "suggestions-label";
+  label.textContent = "Saved";
+  bar.appendChild(label);
+  saved.forEach((q) => {
     const chip = document.createElement("span");
     chip.className = "saved-chip";
-    const ask = document.createElement("button");
-    ask.className = "sample";
-    ask.textContent = q;
-    ask.addEventListener("click", () => sendQuestion(q));
     const del = document.createElement("button");
+    del.type = "button";
     del.className = "saved-x";
     del.textContent = "×";
     del.title = "Delete saved question";
     del.addEventListener("click", () => deleteSaved(q));
-    chip.append(ask, del);
+    chip.append(sampleChip(q), del);
     bar.appendChild(chip);
-  });
-  DEFAULT_SAMPLES.forEach((q) => {
-    const b = document.createElement("button");
-    b.className = "sample";
-    b.textContent = q;
-    b.addEventListener("click", () => sendQuestion(q));
-    bar.appendChild(b);
   });
 }
 
@@ -744,29 +1005,124 @@ $("#new-chat").addEventListener("click", () => {
 
 /* ---------- restore active session ---------- */
 async function restoreSession() {
-  if (!sessionId) return;
+  if (!sessionId) {
+    renderSuggestions(); // defensive — show chips if we land with no session
+    return;
+  }
   try {
     const r = await fetch(`/sessions/${sessionId}/messages`);
     if (!r.ok) {
       localStorage.removeItem(SESSION_KEY);
       sessionId = null;
+      renderSuggestions();
       return;
     }
     const msgs = await r.json();
-    if (msgs.length) clearEmptyState();
+    if (msgs.length) {
+      clearEmptyState();
+      hideSuggestions();
+    } else {
+      renderSuggestions(); // empty session — treat like a fresh chat
+    }
     msgs.forEach((m) =>
       addMessage(m.role, m.content, m.chart, m.sources, m.aggregated)
     );
   } catch {
-    /* offline */
+    /* offline — leave empty state */
   }
 }
 
+/* ---------- copy / excel action buttons ---------- */
+function enhanceCopyable(container) {
+  // Code blocks → Copy
+  container.querySelectorAll("pre").forEach((pre) => {
+    if (pre.dataset.enhanced) return;
+    pre.dataset.enhanced = "1";
+    const wrap = document.createElement("div");
+    wrap.className = "copy-wrap";
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+    wrap.appendChild(
+      makeActionBtn("Copy", "Copied", async () => {
+        await navigator.clipboard.writeText(
+          pre.querySelector("code")?.innerText ?? pre.innerText
+        );
+      })
+    );
+  });
+
+  // Tables → Download as CSV
+  container.querySelectorAll("table").forEach((table) => {
+    if (table.dataset.enhanced) return;
+    table.dataset.enhanced = "1";
+    const wrap = document.createElement("div");
+    wrap.className = "copy-wrap copy-wrap--table";
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+    wrap.appendChild(
+      makeActionBtn("Excel", "Saved", async () => {
+        downloadCSV(tableToCSV(table), `table-${Date.now()}.csv`);
+      })
+    );
+  });
+}
+
+function makeActionBtn(label, doneLabel, action) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "copy-btn";
+  btn.textContent = label;
+  btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try {
+      await action();
+      btn.textContent = doneLabel;
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = label;
+        btn.classList.remove("copied");
+      }, 1400);
+    } catch {
+      btn.textContent = "Failed";
+      setTimeout(() => (btn.textContent = label), 1400);
+    }
+  });
+  return btn;
+}
+
+function tableToCSV(table) {
+  const escape = (s) => {
+    s = String(s).replace(/\r?\n/g, " ");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return Array.from(table.rows)
+    .map((row) =>
+      Array.from(row.cells).map((c) => escape(c.innerText.trim())).join(",")
+    )
+    .join("\r\n");
+}
+
+function downloadCSV(csv, filename) {
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /* ---------- init ---------- */
-setSessionLabel();
-renderSamples();
-restoreSession();
-loadSessions();
-loadInvoices();
-ping();
-setInterval(ping, 15000);
+async function init() {
+  setSessionLabel();
+  await loadCsvQuestions();
+  renderSaved();
+  await restoreSession();
+  loadSessions();
+  loadInvoices();
+  ping();
+  setInterval(ping, 15000);
+}
+init();

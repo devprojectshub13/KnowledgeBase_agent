@@ -87,8 +87,11 @@
         </div>
       </div>
 
-      <!-- Suggestions + the client's saved questions (always visible) -->
-      <div class="samples-bar" id="samples"></div>
+      <!-- CSV-backed onboarding suggestions (3 random, fill-on-click). -->
+      <div class="suggestions hidden" id="suggestions"></div>
+
+      <!-- Saved questions (★ Save button lives in the composer below). -->
+      <div class="samples-bar hidden" id="saved-bar"></div>
 
       <form id="ask-form" class="composer">
         <div class="composer-main">

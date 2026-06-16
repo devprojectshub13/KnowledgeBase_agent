@@ -172,7 +172,10 @@ async def _run_tool(
         aggregated.update(result.get("names", []))
         return json.dumps(result)
     if name == "list_invoices":
-        return json.dumps(list_invoices())
+        invoices = list_invoices()
+        if len(invoices) <= 3:
+            sources.update(inv["name"] for inv in invoices if "name" in inv)
+        return json.dumps(invoices)
     if name == "read_invoice":
         inv = args.get("name", "")
         content = read_invoice(inv)
