@@ -44,3 +44,5 @@ class SessionSummary(BaseModel):
 class MessageOut(BaseModel):
     role: str
     content: str
+    chart: ChartSpec | None = None
+    sources: list[str] = []

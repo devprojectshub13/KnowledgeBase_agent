@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,8 +75,8 @@ async def session_exists(session: AsyncSession, session_id: str) -> bool:
 
 
 async def load_history(session: AsyncSession, session_id: str) -> list[dict]:
-    """Return prior turns as chat messages, oldest first, capped to the most
-    recent N turns to keep the prompt bounded."""
+    """Prior turns as LLM messages ({role, content} only — no meta), oldest
+    first, capped to the most recent N turns to keep the prompt bounded."""
     stmt = (
         select(Message)
         .where(Message.session_id == session_id)
@@ -86,16 +88,50 @@ async def load_history(session: AsyncSession, session_id: str) -> list[dict]:
     return [{"role": m.role, "content": m.content} for m in rows]
 
 
+async def load_transcript(session: AsyncSession, session_id: str) -> list[dict]:
+    """Full conversation for the UI, oldest first — includes each assistant
+    turn's chart/sources so the thread re-renders completely on reload."""
+    rows = list(
+        (
+            await session.execute(
+                select(Message)
+                .where(Message.session_id == session_id)
+                .order_by(Message.id.asc())
+            )
+        ).scalars()
+    )
+    out: list[dict] = []
+    for m in rows:
+        meta = json.loads(m.meta) if m.meta else {}
+        out.append(
+            {
+                "role": m.role,
+                "content": m.content,
+                "chart": meta.get("chart"),
+                "sources": meta.get("sources") or [],
+            }
+        )
+    return out
+
+
 async def append_turn(
     session: AsyncSession,
     session_id: str,
     question: str,
     answer: str,
+    meta: dict | None = None,
 ) -> None:
+    """Persist a user/assistant turn. `meta` (chart spec + sources) is stored on
+    the assistant message so the turn re-renders on reload."""
     session.add_all(
         [
             Message(session_id=session_id, role="user", content=question),
-            Message(session_id=session_id, role="assistant", content=answer),
+            Message(
+                session_id=session_id,
+                role="assistant",
+                content=answer,
+                meta=json.dumps(meta) if meta else None,
+            ),
         ]
     )
     await session.commit()

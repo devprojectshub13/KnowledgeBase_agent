@@ -27,6 +27,7 @@ from app.sessions import (
     delete_session,
     list_sessions,
     load_history,
+    load_transcript,
     session_exists,
 )
 from app.store import delete_invoice, list_invoices, read_invoice
@@ -136,7 +137,7 @@ async def session_messages(
 ) -> list[MessageOut]:
     if not await session_exists(session, session_id):
         raise HTTPException(status_code=404, detail="Unknown session")
-    return [MessageOut(**m) for m in await load_history(session, session_id)]
+    return [MessageOut(**m) for m in await load_transcript(session, session_id)]
 
 
 @app.post("/ask", response_model=AskResponse)
@@ -153,7 +154,11 @@ async def ask(
 
     history = await load_history(session, session_id)
     result = await answer_question(req.question, history=history)
-    await append_turn(session, session_id, req.question, result.answer)
+    meta = {
+        "chart": result.chart.model_dump() if result.chart else None,
+        "sources": result.sources,
+    }
+    await append_turn(session, session_id, req.question, result.answer, meta=meta)
     result.session_id = session_id
     return result
 

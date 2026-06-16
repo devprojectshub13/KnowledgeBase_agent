@@ -159,7 +159,7 @@ async function loadMessages(id) {
     const r = await fetch(`/sessions/${id}/messages`);
     thread.innerHTML = "";
     if (!r.ok) return;
-    (await r.json()).forEach((m) => addMessage(m.role, m.content));
+    (await r.json()).forEach((m) => addMessage(m.role, m.content, m.chart, m.sources));
   } catch {
     /* offline */
   }
@@ -509,7 +509,7 @@ async function restoreSession() {
     }
     const msgs = await r.json();
     if (msgs.length) clearEmptyState();
-    msgs.forEach((m) => addMessage(m.role, m.content));
+    msgs.forEach((m) => addMessage(m.role, m.content, m.chart, m.sources));
   } catch {
     /* offline */
   }

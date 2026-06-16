@@ -2,7 +2,7 @@ import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -42,6 +42,9 @@ class Message(Base):
     )
     role: Mapped[str] = mapped_column(String(16))  # "user" | "assistant"
     content: Mapped[str] = mapped_column(Text)
+    # JSON blob of render extras for assistant turns (chart spec, sources) so the
+    # conversation re-renders fully on reload. Null for plain/user messages.
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -50,6 +53,10 @@ class Message(Base):
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight migration for pre-existing message tables.
+        await conn.execute(
+            text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS meta TEXT")
+        )
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
