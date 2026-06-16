@@ -377,13 +377,14 @@ function buildSources(names) {
   return box;
 }
 
-/* ---------- charts (monochrome) ---------- */
-function grayscale(n) {
-  if (n <= 1) return ["#1a1a1a"];
-  return Array.from({ length: n }, (_, i) => {
-    const v = Math.round(26 + (200 - 26) * (i / (n - 1)));
-    return `rgb(${v},${v},${v})`;
-  });
+/* ---------- charts ---------- */
+// Curated categorical palette (distinct but muted — reads well on white).
+const PALETTE = [
+  "#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f",
+  "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac",
+];
+function palette(n) {
+  return Array.from({ length: n }, (_, i) => PALETTE[i % PALETTE.length]);
 }
 
 function buildChart(spec) {
@@ -393,19 +394,22 @@ function buildChart(spec) {
   box.appendChild(canvas);
 
   const isPie = spec.type === "pie";
-  const colors = grayscale(spec.values.length);
+  const isBar = spec.type === "bar";
+  const cats = palette(spec.values.length);
+  const accent = PALETTE[0];
   const data = {
     labels: spec.labels,
     datasets: [
       {
         label: spec.title,
         data: spec.values,
-        backgroundColor: isPie ? colors : "rgba(26,26,26,0.85)",
-        borderColor: "#1a1a1a",
-        borderWidth: isPie ? 1 : 2,
-        fill: false,
+        backgroundColor: isPie || isBar ? cats : "rgba(78,121,167,0.14)",
+        borderColor: isPie ? "#ffffff" : accent,
+        borderWidth: isPie ? 2 : 2,
+        fill: !isPie && !isBar,
         tension: 0.25,
-        pointBackgroundColor: "#1a1a1a",
+        pointBackgroundColor: accent,
+        pointRadius: 3,
       },
     ],
   };
