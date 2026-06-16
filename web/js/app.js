@@ -70,6 +70,7 @@ function resetThread() {
   localStorage.removeItem(SESSION_KEY);
   setSessionLabel();
   thread.innerHTML = EMPTY_STATE_HTML;
+    showSuggestions();  
 }
 
 /* ---------- session history sidebar ---------- */
@@ -166,6 +167,7 @@ async function deleteSession(id) {
 
 async function switchSession(id) {
   if (id === sessionId) return;
+   hideSuggestions();  
   sessionId = id;
   localStorage.setItem(SESSION_KEY, id);
   setSessionLabel();
@@ -499,6 +501,7 @@ askFileInput.addEventListener("change", () => {
 
 $("#ask-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  hideSuggestions();   
   const question = askInput.value.trim();
   const file = attachedFile;
   if (!question && !file) return;
@@ -803,7 +806,65 @@ function csvToTable(text, delim) {
     .join("");
   return `<table class="preview-table"><thead><tr>${head}</tr></thead><tbody>${bodyRows}</tbody></table>`;
 }
+
+/* ---------- suggested questions (new chat) ---------- */
+let questionBank = null; // cached after first fetch
+
+async function loadQuestionBank() {
+  if (questionBank) return questionBank;
+  try {
+    const r = await fetch("/static/questions.csv");
+    if (!r.ok) return [];
+    let qs = parseCSV(await r.text(), ",")
+      .map((row) => (row[0] || "").trim())
+      .filter(Boolean);
+    // drop a header cell like "question" / "questions"
+    if (qs.length && /^questions?$/i.test(qs[0])) qs = qs.slice(1);
+    questionBank = qs;
+    return qs;
+  } catch {
+    return [];
+  }
+}
+
+// Fisher–Yates pick of n random items.
+function sampleQuestions(arr, n) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a.slice(0, n);
+}
+
+async function showSuggestions() {
+  const box = $("#suggestions");
+  if (!box || sessionId) return;          // only on a fresh chat
+  const all = await loadQuestionBank();
+  if (!all.length || sessionId) return;   // re-check after await
+
+  box.innerHTML = `<span class="suggestions-label">Try asking</span>`;
+  sampleQuestions(all, Math.min(3, all.length)).forEach((q) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "suggestion";
+    chip.textContent = q;
+    chip.addEventListener("click", () => {
+      askInput.value = q;
+      askInput.dispatchEvent(new Event("input")); // grow the textarea
+      askInput.focus();
+    });
+    box.appendChild(chip);
+  });
+  box.classList.remove("hidden");
+}
+
+function hideSuggestions() {
+  const box = $("#suggestions");
+  if (box) { box.classList.add("hidden"); box.innerHTML = ""; }
+}
 /* ---------- init ---------- */
+  showSuggestions();  
 setSessionLabel();
 restoreSession();
 loadSessions();
