@@ -11,12 +11,16 @@ SYSTEM_PROMPT = (
     "never invent numbers.\n"
     "\n"
     "Tools:\n"
-    "- `aggregate_invoices(metric, group_by)`: the ONLY correct way to get "
-    "totals, counts, and breakdowns — it computes exact numbers for you. "
+    "- `aggregate_invoices(metric, group_by, where)`: the ONLY correct way to "
+    "get totals, counts, and breakdowns — it computes exact numbers for you. "
     "metric is total_amount | tax_amount | count. group_by is omitted for a "
-    "grand total, or one of buyer_state, seller_state, currency, month. "
+    "grand total, or one of buyer_state, seller_state, currency, month. `where` "
+    "restricts to a subset via equality filters. "
     'For "sales by state" use metric=total_amount, group_by=buyer_state (the '
-    'place of supply). For "monthly growth" use group_by=month.\n'
+    'place of supply). For "monthly growth" use group_by=month. For a question '
+    'about ONE state over time (e.g. "Karnataka by month") you MUST filter: '
+    'where={"buyer_state":"Karnataka"} with group_by=month — never use the '
+    "unfiltered monthly totals.\n"
     "- `render_chart(chart_type, title, labels, values)`: draw a pie/line/bar "
     "chart. Pass the labels and values returned by aggregate_invoices verbatim.\n"
     "- `list_invoices`: raw fields of every invoice — only for inspecting or "
@@ -41,8 +45,10 @@ TOOLS = [
         "function": {
             "name": "aggregate_invoices",
             "description": (
-                "Exact total/count/breakdown across all invoices, computed in "
-                "code. Use this for every number and chart."
+                "Exact total/count/breakdown across invoices, computed in code. "
+                "Use this for every number and chart. Use `where` to restrict to "
+                "a subset (e.g. one state) and `group_by` to break the result "
+                "down (e.g. by month)."
             ),
             "parameters": {
                 "type": "object",
@@ -55,6 +61,20 @@ TOOLS = [
                         "type": "string",
                         "enum": ["buyer_state", "seller_state", "currency", "month"],
                         "description": "Omit for a grand total.",
+                    },
+                    "where": {
+                        "type": "object",
+                        "description": (
+                            "Optional equality filters to restrict which invoices "
+                            "are included, e.g. {\"buyer_state\": \"Karnataka\"} or "
+                            "{\"month\": \"2026-02\"}."
+                        ),
+                        "properties": {
+                            "buyer_state": {"type": "string"},
+                            "seller_state": {"type": "string"},
+                            "currency": {"type": "string"},
+                            "month": {"type": "string", "description": "yyyy-mm"},
+                        },
                     },
                 },
                 "required": ["metric"],
@@ -129,10 +149,14 @@ async def _run_tool(
     aggregated: set[str],
 ) -> str:
     if name == "aggregate_invoices":
-        result = aggregate(args.get("metric", "total_amount"), args.get("group_by"))
-        # An aggregate spans every invoice — record them for the
-        # "Based on all N invoices" provenance line.
-        aggregated.update(r["name"] for r in list_invoices())
+        result = aggregate(
+            args.get("metric", "total_amount"),
+            args.get("group_by"),
+            args.get("where"),
+        )
+        # Record exactly the invoices this aggregate covered (after filtering)
+        # for accurate "Based on N invoices" provenance.
+        aggregated.update(result.get("names", []))
         return json.dumps(result)
     if name == "list_invoices":
         return json.dumps(list_invoices())

@@ -112,9 +112,28 @@ def list_invoices() -> list[dict]:
     return rows
 
 
+def _month_of(row: dict) -> str:
+    return str(row.get("invoice_date") or "")[:7] or "unknown"
+
+
+def _matches(row: dict, where: dict | None) -> bool:
+    """Case-insensitive equality filter. Keys are frontmatter fields
+    (buyer_state, seller_state, currency, …) or the virtual "month" (yyyy-mm)."""
+    if not where:
+        return True
+    for key, val in where.items():
+        if val in (None, ""):
+            continue
+        actual = _month_of(row) if key == "month" else str(row.get(key) or "")
+        if actual.strip().lower() != str(val).strip().lower():
+            return False
+    return True
+
+
 def aggregate(
     metric: str = "total_amount",
     group_by: str | None = None,
+    where: dict | None = None,
 ) -> dict:
     """Exact aggregation over invoice frontmatter — computed in Python, never by
     the LLM, so totals and chart values are correct.
@@ -122,34 +141,34 @@ def aggregate(
     metric: "total_amount" | "tax_amount" | "count".
     group_by: None for a grand total, else a field name ("buyer_state",
     "seller_state", "currency") or "month" (groups invoice_date by yyyy-mm).
-    Returns the grand total and, when grouped, sorted {label, value} rows plus
-    the set of currencies seen (so the caller can flag mixed-currency sums).
+    where: optional equality filters, e.g. {"buyer_state": "Karnataka"} or
+    {"month": "2026-02"} — only matching invoices are included.
+    Returns the grand total, optional grouped rows, the currencies seen, and the
+    NAMES of the invoices actually included (so provenance is accurate).
     """
-    rows = list_invoices()
+    rows = [r for r in list_invoices() if _matches(r, where)]
 
     def value_of(row: dict) -> float:
-        if metric == "count":
-            return 1.0
-        return float(row.get(metric) or 0)
+        return 1.0 if metric == "count" else float(row.get(metric) or 0)
 
     currencies = sorted({r.get("currency") for r in rows if r.get("currency")})
     total = round(sum(value_of(r) for r in rows), 2)
+    names = [r["name"] for r in rows]
 
     if not group_by:
         return {
             "metric": metric,
             "group_by": None,
+            "where": where or None,
             "total": total,
             "count": len(rows),
             "currencies": currencies,
+            "names": names,
         }
 
     groups: dict[str, float] = {}
     for r in rows:
-        if group_by == "month":
-            key = (str(r.get("invoice_date") or "")[:7]) or "unknown"
-        else:
-            key = str(r.get(group_by) or "unknown")
+        key = _month_of(r) if group_by == "month" else str(r.get(group_by) or "unknown")
         groups[key] = round(groups.get(key, 0.0) + value_of(r), 2)
 
     # Months read best chronologically; other groupings by descending value.
@@ -160,10 +179,12 @@ def aggregate(
     return {
         "metric": metric,
         "group_by": group_by,
+        "where": where or None,
         "total": total,
         "count": len(rows),
         "currencies": currencies,
         "groups": [{"label": k, "value": v} for k, v in items],
+        "names": names,
     }
 
 
