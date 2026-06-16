@@ -39,14 +39,35 @@ what makes "total tax of all invoices" correct instead of a best guess.
 - Postgres → **9432** (sessions/messages only — no pgvector here)
 - API → **9001**
 
-## Setup
+## Setup (local)
 
 ```bash
 uv sync
 cp .env.example .env          # fill in LLM_API_KEY
-docker compose up -d          # Postgres on 9432
+docker compose up -d db       # Postgres on 9432
 uv run uvicorn app.main:app --port 9001
 ```
+
+## Run with Docker
+
+Full stack (Postgres + app) via compose — fill in `.env` first:
+
+```bash
+cp .env.example .env          # LLM_API_KEY (DATABASE_URL is set by compose)
+docker compose up --build     # app on http://localhost:9001
+```
+
+Or run the published image against your own Postgres:
+
+```bash
+docker run -p 9001:9001 \
+  -e LLM_API_KEY=sk-... \
+  -e DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/agentvector \
+  -v "$PWD/invoice_data:/app/invoice_data" \
+  bhutiyalakhan/invoice-agent:latest
+```
+
+Image: **`bhutiyalakhan/invoice-agent`** on Docker Hub (`:latest`, `:0.1.0`).
 
 Open **http://localhost:9001/**.
 
