@@ -460,6 +460,45 @@ function palette(n) {
   return Array.from({ length: n }, (_, i) => PALETTE[i % PALETTE.length]);
 }
 
+// Draw percentage labels on pie slices.
+Chart.register({
+  id: "piePercent",
+  afterDatasetsDraw(chart) {
+    if (chart.config.type !== "pie") return;
+    const ctx = chart.ctx;
+    const ds = chart.data.datasets[0].data;
+    const total = ds.reduce((a, b) => a + (Number(b) || 0), 0);
+    if (!total) return;
+    ctx.save();
+    ctx.font = "600 12px Inter, sans-serif";
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    chart.getDatasetMeta(0).data.forEach((arc, i) => {
+      const pct = ((Number(ds[i]) || 0) / total) * 100;
+      if (pct < 4) return; // skip slivers
+      const p = arc.tooltipPosition();
+      ctx.fillText(pct.toFixed(1) + "%", p.x, p.y);
+    });
+    ctx.restore();
+  },
+});
+
+// Export a chart canvas as a PNG (on a white background).
+function downloadChart(canvas, title) {
+  const tmp = document.createElement("canvas");
+  tmp.width = canvas.width;
+  tmp.height = canvas.height;
+  const c = tmp.getContext("2d");
+  c.fillStyle = "#ffffff";
+  c.fillRect(0, 0, tmp.width, tmp.height);
+  c.drawImage(canvas, 0, 0);
+  const a = document.createElement("a");
+  a.href = tmp.toDataURL("image/png");
+  a.download = (title || "chart").replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".png";
+  a.click();
+}
+
 function buildChart(spec) {
   const box = document.createElement("div");
   box.className = "chart-box";
@@ -497,6 +536,13 @@ function buildChart(spec) {
       : { y: { beginAtZero: true, grid: { color: "#ececec" } }, x: { grid: { display: false } } },
   };
   new Chart(canvas.getContext("2d"), { type: spec.type, data, options });
+
+  const dl = document.createElement("button");
+  dl.className = "chart-dl";
+  dl.type = "button";
+  dl.textContent = "↓ Download PNG";
+  dl.addEventListener("click", () => downloadChart(canvas, spec.title));
+  box.appendChild(dl);
   return box;
 }
 

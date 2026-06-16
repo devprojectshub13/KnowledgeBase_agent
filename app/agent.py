@@ -36,7 +36,11 @@ SYSTEM_PROMPT = (
     "exact labels/values, then give a one-line text takeaway.\n"
     "- If there are no invoices, or a needed field is missing, say so plainly. "
     "If aggregate reports multiple currencies, flag that you should not sum "
-    "across them."
+    "across them.\n"
+    "- For comparisons (across states, months, buyers, etc.) present the numbers "
+    "as a GitHub-flavored Markdown table with a header row and one row per item, "
+    "so the user gets a clean tabular view. A chart can accompany the table when "
+    "useful."
 )
 
 TOOLS = [
