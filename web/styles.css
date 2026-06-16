@@ -76,25 +76,18 @@ body {
   gap: 0;
 }
 
-/* Invoice app: two panels (Invoices | Ask). */
-.layout--two {
-  grid-template-columns: 380px 1fr;
-}
-
-/* Sample-question chips on the empty state. */
-.samples {
+/* Persistent suggestion chips — always shown above the composer. */
+.samples-bar {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 18px;
-  width: 100%;
-  max-width: 420px;
+  padding: 10px 22px 0;
 }
 .sample {
   font-family: "Inter", sans-serif;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   text-align: left;
-  padding: 9px 12px;
+  padding: 7px 11px;
   background: var(--paper);
   border: 1.5px solid var(--line-faint);
   color: var(--ink-soft);
@@ -102,6 +95,50 @@ body {
   transition: border-color 0.15s, color 0.15s;
 }
 .sample:hover {
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+/* Clickable invoice rows (the body is a <button>). */
+.doc-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+/* "Used:" source chips under an answer. */
+.src-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.src-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+.src-chip {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  padding: 3px 8px;
+  background: var(--paper);
+  border: 1.5px solid var(--line-faint);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.src-chip:hover {
   border-color: var(--line);
   color: var(--ink);
 }
@@ -117,6 +154,54 @@ body {
 .chart-box canvas {
   width: 100% !important;
   height: auto !important;
+}
+
+/* Invoice preview modal. */
+.modal--preview {
+  width: min(680px, 92vw);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.preview-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1.5px solid var(--line-faint);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+.preview-modal-title {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+.preview-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+.preview-modal-close:hover {
+  color: var(--ink);
+}
+.preview-modal-body {
+  overflow: auto;
+  font-size: 0.85rem;
+}
+.preview-modal-body pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.preview-loading {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+.preview-loading.err {
+  color: #b00020;
 }
 
 .panel {

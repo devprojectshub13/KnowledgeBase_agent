@@ -43,6 +43,15 @@ function setSessionLabel() {
     : "No active session";
 }
 
+function relativeTime(iso) {
+  if (!iso) return "";
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 function formatMoney(n) {
   if (n === null || n === undefined || n === "") return "—";
   return Number(n).toLocaleString();
@@ -62,10 +71,11 @@ async function ping() {
 }
 
 /* ---------- confirmation modal ---------- */
-function confirmDialog(text) {
+function confirmDialog(text, sub) {
   return new Promise((resolve) => {
     const overlay = $("#confirm-overlay");
     $("#confirm-text").textContent = text;
+    $("#confirm-sub").textContent = sub || "This cannot be undone.";
     overlay.classList.remove("hidden");
     const ok = $("#confirm-ok");
     const cancel = $("#confirm-cancel");
@@ -90,6 +100,82 @@ function confirmDialog(text) {
     document.addEventListener("keydown", onKey);
     ok.focus();
   });
+}
+
+/* ---------- session history sidebar ---------- */
+async function loadSessions() {
+  const list = $("#session-list");
+  let sessions = [];
+  try {
+    const r = await fetch("/sessions");
+    if (r.ok) sessions = await r.json();
+  } catch {
+    return;
+  }
+  if (!sessions.length) {
+    list.innerHTML = `<p class="session-empty">No conversations yet.</p>`;
+    return;
+  }
+  list.innerHTML = "";
+  sessions.forEach((s) => {
+    const item = document.createElement("div");
+    item.className = "session-item" + (s.session_id === sessionId ? " active" : "");
+    item.setAttribute("role", "button");
+    item.tabIndex = 0;
+    item.innerHTML =
+      `<div class="session-item-body">` +
+      `<span class="session-item-title">${escapeHtml(s.title)}</span>` +
+      `<span class="session-item-meta">${s.message_count} msg · ${relativeTime(s.last_active)}</span>` +
+      `</div>` +
+      `<button class="session-del" title="Delete conversation" aria-label="Delete">` +
+      `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ` +
+      `stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">` +
+      `<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/>` +
+      `<path d="M10 11v6M14 11v6"/></svg></button>`;
+    item.addEventListener("click", () => switchSession(s.session_id));
+    item.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") switchSession(s.session_id);
+    });
+    item.querySelector(".session-del").addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteSession(s.session_id);
+    });
+    list.appendChild(item);
+  });
+}
+
+async function switchSession(id) {
+  if (id === sessionId) return;
+  sessionId = id;
+  localStorage.setItem(SESSION_KEY, id);
+  setSessionLabel();
+  thread.innerHTML = "";
+  await loadMessages(id);
+  loadSessions();
+}
+
+async function loadMessages(id) {
+  try {
+    const r = await fetch(`/sessions/${id}/messages`);
+    thread.innerHTML = "";
+    if (!r.ok) return;
+    (await r.json()).forEach((m) => addMessage(m.role, m.content));
+  } catch {
+    /* offline */
+  }
+}
+
+async function deleteSession(id) {
+  if (!(await confirmDialog("Delete this conversation?",
+    "This removes the conversation and its messages."))) return;
+  try {
+    const r = await fetch(`/sessions/${id}`, { method: "DELETE" });
+    if (!r.ok && r.status !== 404) throw new Error();
+  } catch {
+    return;
+  }
+  if (id === sessionId) resetThread();
+  loadSessions();
 }
 
 /* ---------- invoices ---------- */
@@ -123,10 +209,13 @@ async function loadInvoices() {
       `${d.buyer_state || "—"} · ${d.invoice_date || "—"}` +
       ` · ${d.currency || ""} ${formatMoney(d.total_amount)}`;
     item.innerHTML =
-      `<div class="doc-item-body">` +
+      `<button class="doc-item-body" title="Preview ${escapeHtml(d.invoice_no || d.name)}">` +
       `<span class="doc-item-name">${escapeHtml(d.invoice_no || d.name)}</span>` +
-      `<span class="doc-item-meta">${escapeHtml(meta)}</span></div>` +
+      `<span class="doc-item-meta">${escapeHtml(meta)}</span></button>` +
       `<button class="doc-del" title="Delete invoice" aria-label="Delete">${TRASH_SVG}</button>`;
+    item
+      .querySelector(".doc-item-body")
+      .addEventListener("click", () => openPreview(d.name, d.invoice_no || d.name));
     item
       .querySelector(".doc-del")
       .addEventListener("click", () => deleteInvoice(d.name, d.invoice_no || d.name));
@@ -135,17 +224,45 @@ async function loadInvoices() {
 }
 
 async function deleteInvoice(name, label) {
-  const ok = await confirmDialog(`Delete invoice "${label}"?`);
-  if (!ok) return;
+  if (!(await confirmDialog(`Delete invoice "${label}"?`,
+    "This permanently removes the stored invoice."))) return;
   try {
     const r = await fetch(`/invoices/${encodeURIComponent(name)}`, { method: "DELETE" });
-    if (!r.ok && r.status !== 404) throw new Error("Delete failed");
+    if (!r.ok && r.status !== 404) throw new Error();
     logIngest(`🗑 removed "${label}"`);
   } catch {
     logIngest(`✕ could not delete "${label}"`, true);
   }
   loadInvoices();
 }
+
+/* ---------- invoice preview modal ---------- */
+async function openPreview(name, label) {
+  const overlay = $("#preview-overlay");
+  $("#preview-title").textContent = label || name;
+  const body = $("#preview-body");
+  body.innerHTML = `<div class="preview-loading">Loading…</div>`;
+  overlay.classList.remove("hidden");
+  try {
+    const r = await fetch(`/invoices/${encodeURIComponent(name)}`);
+    const data = await safeJson(r);
+    if (!r.ok) throw new Error(data.detail || "Not found");
+    body.innerHTML = renderMarkdown("```yaml\n" + (data.content || "") + "\n```");
+  } catch (err) {
+    body.innerHTML = `<div class="preview-loading err">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function closePreview() {
+  $("#preview-overlay").classList.add("hidden");
+}
+$("#preview-close").addEventListener("click", closePreview);
+$("#preview-overlay").addEventListener("mousedown", (e) => {
+  if (e.target.id === "preview-overlay") closePreview();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#preview-overlay").classList.contains("hidden")) closePreview();
+});
 
 /* ---------- upload ---------- */
 const fileInput = $("#file-input");
@@ -208,7 +325,6 @@ $("#file-form").addEventListener("submit", async (e) => {
 
 /* ---------- chat ---------- */
 const thread = $("#thread");
-
 const EMPTY_STATE_HTML = $("#empty-state").outerHTML;
 
 function clearEmptyState() {
@@ -220,10 +336,9 @@ function resetThread() {
   localStorage.removeItem(SESSION_KEY);
   setSessionLabel();
   thread.innerHTML = EMPTY_STATE_HTML;
-  wireSamples();
 }
 
-function addMessage(role, text, chart) {
+function addMessage(role, text, chart, sources) {
   clearEmptyState();
   const wrap = document.createElement("div");
   wrap.className = `msg msg--${role}`;
@@ -240,10 +355,26 @@ function addMessage(role, text, chart) {
     wrap.append(body);
   }
   if (chart) wrap.append(buildChart(chart));
+  if (sources && sources.length) wrap.append(buildSources(sources));
 
   thread.appendChild(wrap);
   thread.scrollTop = thread.scrollHeight;
   return wrap;
+}
+
+function buildSources(names) {
+  const box = document.createElement("div");
+  box.className = "src-chips";
+  box.innerHTML = `<span class="src-label">Used:</span>`;
+  names.forEach((n) => {
+    const chip = document.createElement("button");
+    chip.className = "src-chip";
+    chip.textContent = n;
+    chip.title = `Preview ${n}`;
+    chip.addEventListener("click", () => openPreview(n, n));
+    box.appendChild(chip);
+  });
+  return box;
 }
 
 /* ---------- charts (monochrome) ---------- */
@@ -338,7 +469,8 @@ async function sendQuestion(question) {
       localStorage.setItem(SESSION_KEY, sessionId);
       setSessionLabel();
     }
-    addMessage("assistant", data.answer || "(no answer)", data.chart);
+    addMessage("assistant", data.answer || "(no answer)", data.chart, data.sources);
+    loadSessions();
   } catch (err) {
     typing.remove();
     addMessage("assistant", `**Error:** ${err.message}`);
@@ -353,16 +485,15 @@ $("#ask-form").addEventListener("submit", (e) => {
   sendQuestion(askInput.value.trim());
 });
 
-/* ---------- sample question chips ---------- */
-function wireSamples() {
-  document.querySelectorAll(".sample").forEach((b) =>
-    b.addEventListener("click", () => sendQuestion(b.textContent.trim()))
-  );
-}
+/* ---------- persistent sample chips ---------- */
+document.querySelectorAll(".sample").forEach((b) =>
+  b.addEventListener("click", () => sendQuestion(b.textContent.trim()))
+);
 
 /* ---------- new chat ---------- */
 $("#new-chat").addEventListener("click", () => {
   resetThread();
+  loadSessions();
   askInput.focus();
 });
 
@@ -386,8 +517,8 @@ async function restoreSession() {
 
 /* ---------- init ---------- */
 setSessionLabel();
-wireSamples();
 restoreSession();
+loadSessions();
 loadInvoices();
 ping();
 setInterval(ping, 15000);

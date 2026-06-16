@@ -145,11 +145,28 @@ def aggregate(
     }
 
 
+def _find(name: str) -> Path | None:
+    """Locate an invoice by its stored name OR its invoice number (both
+    case-insensitive), so callers can use whichever they have."""
+    direct = _resolve(name)
+    if direct.exists():
+        return direct
+    target = name.strip().lower()
+    for path in INVOICE_DIR.glob("*.md") if INVOICE_DIR.exists() else []:
+        if path.stem.lower() == target:
+            return path
+        front, _ = _parse(path.read_text(encoding="utf-8"))
+        if str(front.get("invoice_no") or "").strip().lower() == target:
+            return path
+    return None
+
+
 def read_invoice(name: str) -> str | None:
     """Full markdown content of one invoice (frontmatter + body), truncated to
-    the read budget. Returns None if it doesn't exist."""
-    path = _resolve(name)
-    if not path.exists():
+    the read budget. Accepts the stored name or the invoice number. Returns None
+    if not found."""
+    path = _find(name)
+    if path is None:
         return None
     return path.read_text(encoding="utf-8")[: settings.read_char_limit]
 

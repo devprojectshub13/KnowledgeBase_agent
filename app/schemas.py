@@ -26,6 +26,7 @@ class ChartSpec(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     chart: ChartSpec | None = None
+    sources: list[str] = []  # invoice names the agent read for this answer
     session_id: str | None = None
 
 

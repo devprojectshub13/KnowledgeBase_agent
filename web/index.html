@@ -28,7 +28,18 @@
     </div>
   </header>
 
-  <main class="layout layout--two">
+  <main class="layout">
+    <!-- History -->
+    <aside class="panel panel--history">
+      <div class="panel-head history-head">
+        <h2 class="panel-title">History</h2>
+        <button id="new-chat" class="btn btn--ghost">+ New</button>
+      </div>
+      <div id="session-list" class="session-list">
+        <p class="session-empty">No conversations yet.</p>
+      </div>
+    </aside>
+
     <!-- Invoices -->
     <aside class="panel panel--kb">
       <div class="panel-head">
@@ -67,19 +78,20 @@
           <h2 class="panel-title">Ask</h2>
           <p class="panel-desc" id="session-label">No active session</p>
         </div>
-        <button id="new-chat" class="btn btn--ghost">+ New</button>
       </div>
 
       <div id="thread" class="thread">
         <div class="empty-state" id="empty-state">
           <div class="empty-mark">₹</div>
           <p>Ask about your invoices — totals, tax, and charts.</p>
-          <div class="samples" id="samples">
-            <button class="sample">Give total tax amount from all invoices</button>
-            <button class="sample">State wise sales pie chart</button>
-            <button class="sample">Company growth line chart by month by sales</button>
-          </div>
         </div>
+      </div>
+
+      <!-- Persistent suggestions (always visible) -->
+      <div class="samples-bar" id="samples">
+        <button class="sample">Give total tax amount from all invoices</button>
+        <button class="sample">State wise sales pie chart</button>
+        <button class="sample">Company growth line chart by month by sales</button>
       </div>
 
       <form id="ask-form" class="composer">
@@ -95,12 +107,23 @@
   <!-- Confirmation modal -->
   <div id="confirm-overlay" class="overlay hidden">
     <div class="modal" role="dialog" aria-modal="true">
-      <p class="modal-text" id="confirm-text">Delete this invoice?</p>
-      <p class="modal-sub">This permanently removes the stored invoice.</p>
+      <p class="modal-text" id="confirm-text">Delete?</p>
+      <p class="modal-sub" id="confirm-sub">This cannot be undone.</p>
       <div class="modal-actions">
         <button class="btn btn--ghost" id="confirm-cancel">Cancel</button>
         <button class="btn btn--solid" id="confirm-ok">Delete</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Invoice preview modal -->
+  <div id="preview-overlay" class="overlay hidden">
+    <div class="modal modal--preview" role="dialog" aria-modal="true">
+      <div class="preview-modal-head">
+        <span class="preview-modal-title" id="preview-title">Invoice</span>
+        <button class="preview-modal-close" id="preview-close" aria-label="Close">×</button>
+      </div>
+      <div class="preview-modal-body" id="preview-body"></div>
     </div>
   </div>
 

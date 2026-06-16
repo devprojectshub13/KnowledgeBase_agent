@@ -121,7 +121,9 @@ TOOLS = [
 _MAX_ROUNDS = 6
 
 
-async def _run_tool(name: str, args: dict, chart_box: list[ChartSpec]) -> str:
+async def _run_tool(
+    name: str, args: dict, chart_box: list[ChartSpec], sources: set[str]
+) -> str:
     if name == "aggregate_invoices":
         return json.dumps(
             aggregate(args.get("metric", "total_amount"), args.get("group_by"))
@@ -129,8 +131,12 @@ async def _run_tool(name: str, args: dict, chart_box: list[ChartSpec]) -> str:
     if name == "list_invoices":
         return json.dumps(list_invoices())
     if name == "read_invoice":
-        content = read_invoice(args.get("name", ""))
-        return content if content is not None else "Invoice not found."
+        inv = args.get("name", "")
+        content = read_invoice(inv)
+        if content is None:
+            return "Invoice not found."
+        sources.add(inv)  # record the invoice the agent actually used
+        return content
     if name == "render_chart":
         labels = [str(x) for x in args.get("labels", [])]
         values = [float(v) for v in args.get("values", [])]
@@ -156,6 +162,7 @@ async def answer_question(
     messages.append({"role": "user", "content": question})
 
     chart_box: list[ChartSpec] = []
+    sources: set[str] = set()
 
     for _ in range(_MAX_ROUNDS):
         completion = await chat_completion(
@@ -170,12 +177,13 @@ async def answer_question(
             return AskResponse(
                 answer=msg.content or "",
                 chart=chart_box[-1] if chart_box else None,
+                sources=sorted(sources),
             )
 
         messages.append(msg.model_dump(exclude_none=True))
         for call in msg.tool_calls:
             args = json.loads(call.function.arguments or "{}")
-            result = await _run_tool(call.function.name, args, chart_box)
+            result = await _run_tool(call.function.name, args, chart_box, sources)
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": result}
             )
@@ -187,4 +195,5 @@ async def answer_question(
             "narrowing the question."
         ),
         chart=chart_box[-1] if chart_box else None,
+        sources=sorted(sources),
     )
