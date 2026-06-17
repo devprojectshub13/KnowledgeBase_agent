@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
 
   app:
-    image: bhutiyalakhan/invoice-agent:0.1.1
+    image: bhutiyalakhan/invoice-agent:0.1.2
     ports:
       - "9000:9001" # open http://localhost:9000
     env_file: .env
