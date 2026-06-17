@@ -240,9 +240,10 @@ body {
 
 /* Invoice preview modal. */
 .modal--preview {
-  width: min(680px, 92vw);
-  max-width: min(680px, 92vw);
-  max-height: 82vh;
+  width: min(1100px, 95vw);
+  max-width: min(1100px, 95vw);
+  height: 90vh;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
   text-align: left;
@@ -272,9 +273,13 @@ body {
   color: var(--ink);
 }
 .preview-modal-body {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   font-size: 0.85rem;
   line-height: 1.65;
+  display: flex;
+  flex-direction: column;
 }
 .preview-modal-body pre {
   white-space: pre-wrap;
@@ -357,9 +362,20 @@ body {
 .ptab--dl {
   margin-left: auto;
 }
+.preview-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.preview-pane > * {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
 .preview-frame {
   width: 100%;
-  height: 62vh;
+  height: 100%;
   border: 1.5px solid var(--line-faint);
   background: #fafafa;
 }
@@ -498,7 +514,7 @@ body {
 .modal {
   background: var(--paper);
   border: 1.5px solid var(--line);
-  max-width: 550px;
+  max-width: 700px;
   width: calc(100% - 48px);
   padding: 26px 26px 22px;
   animation: pop 0.16s ease;
@@ -1074,7 +1090,7 @@ a.msg-file:hover { border-color: var(--ink); }
 .preview-toggle:hover, .preview-dl:hover, .preview-open:hover {
   background: var(--ink); color: var(--paper); border-color: var(--ink);
 }
-.preview-doc, .preview-pre { max-height: 420px; overflow: auto; padding: 14px 16px; }
+/* .preview-doc, .preview-pre { max-height: 420px; overflow: auto; padding: 14px 16px; } */
 .preview-doc { font-size: 13px; line-height: 1.6; }
 .preview-pre {
   margin: 0; font-family: var(--mono); font-size: 12px;
@@ -1086,3 +1102,10 @@ a.msg-file:hover { border-color: var(--ink); }
   text-align: left; white-space: nowrap;
 }
 .preview-table th { background: var(--field); font-weight: 600; position: sticky; top: 0; }
+
+.preview-doc,.preview-frame { width: 100%; height: 420px; border: none; display: block; background: var(--paper); }
+.preview-pane .preview-doc,
+.preview-pane .preview-frame {
+  height: 100%;
+  max-height: none;
+}

@@ -15,7 +15,81 @@ function escapeHtml(s) {
 // Safe markdown via marked + DOMPurify (both vendored).
 function renderMarkdown(s) {
   const parse = typeof marked.parse === "function" ? marked.parse : marked;
-  return DOMPurify.sanitize(parse(s || ""));
+  return DOMPurify.sanitize(parse(prepareMarkdown(s || "")));
+}
+
+// If the content starts with a YAML front-matter block (--- ... ---),
+// pull it out and render it as a clean key/value table instead of letting
+// marked squash it into a paragraph. Everything after the block is left
+// alone, except we wrap raw OCR text in a code fence so stray dash-rows
+// don't get parsed as markdown tables.
+function prepareMarkdown(s) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(s);
+  if (!m) return s;
+  return yamlToTable(m[1]);
+}
+
+// Lightweight YAML → markdown table. Handles top-level scalars, empty lists
+// ([]), and a `line_items:` list of dash-prefixed objects. Skips null/empty
+// values so the table stays compact. Not a real YAML parser — just enough
+// for the invoice payloads this app stores.
+function yamlToTable(yaml) {
+  const lines = yaml.split(/\r?\n/);
+  const fields = [];
+  const items = [];
+  let inItems = false;
+  let current = null;
+
+  for (const raw of lines) {
+    if (!raw.trim()) continue;
+
+    if (/^line_items:\s*$/.test(raw)) { inItems = true; continue; }
+
+    if (inItems) {
+      const dash = /^\s*-\s*(.+?):\s*(.*)$/.exec(raw);
+      const kv = /^\s{2,}(.+?):\s*(.*)$/.exec(raw);
+      if (dash) {
+        current = {};
+        items.push(current);
+        current[dash[1].trim()] = dash[2].trim();
+      } else if (kv && current) {
+        current[kv[1].trim()] = kv[2].trim();
+      }
+      continue;
+    }
+
+    const top = /^([^:]+):\s*(.*)$/.exec(raw);
+    if (top) fields.push([top[1].trim(), top[2].trim()]);
+  }
+
+  const isEmpty = (v) =>
+    v === "" || v === "null" || v === "[]" || v === "{}" || v == null;
+
+  let out = "| Field | Value |\n|---|---|\n";
+  for (const [k, v] of fields) {
+    if (isEmpty(v)) continue;
+    out += `| ${k} | ${escapePipes(v)} |\n`;
+  }
+
+  if (items.length) {
+    out += "\n**Line items**\n\n";
+    const keys = Array.from(
+      items.reduce((set, it) => {
+        Object.keys(it).forEach((k) => !isEmpty(it[k]) && set.add(k));
+        return set;
+      }, new Set())
+    );
+    out += "| " + keys.join(" | ") + " |\n";
+    out += "|" + keys.map(() => "---").join("|") + "|\n";
+    for (const it of items) {
+      out += "| " + keys.map((k) => escapePipes(it[k] || "")).join(" | ") + " |\n";
+    }
+  }
+  return out;
+}
+
+function escapePipes(v) {
+  return String(v).replace(/\|/g, "\\|");
 }
 
 async function safeJson(r) {
@@ -271,10 +345,10 @@ async function openPreview(name, label) {
   const setActive = (id) =>
     body.querySelectorAll(".ptab").forEach((b) => b.classList.toggle("active", b.id === id));
 
-  const showOriginal = () => {
-    pane.innerHTML = `<iframe class="preview-frame" src="${origUrl}" title="${escapeHtml(label || name)}"></iframe>`;
-    setActive("tab-orig");
-  };
+const showOriginal = () => {
+  pane.innerHTML = `<iframe class="preview-frame" src="${origUrl}#view=FitH" title="${escapeHtml(label || name)}"></iframe>`;
+  setActive("tab-orig");
+};
   const showData = async () => {
     pane.innerHTML = `<div class="preview-loading">Loading…</div>`;
     try {
