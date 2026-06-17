@@ -2,12 +2,21 @@
 
 const $ = (sel) => document.querySelector(sel);
 const SESSION_KEY = "invoice-agent.session";
+const PREVIEW_WIDTH_KEY = "invoice-agent.previewWidth";
 
 let sessionId = localStorage.getItem(SESSION_KEY) || null;
+let currentPreview = null; // name of the invoice currently shown in the dock
+
+/* ---------- tiny DOM helper ---------- */
+function el(tag, className) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  return node;
+}
 
 /* ---------- helpers ---------- */
 function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) =>
+  return String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
   );
 }
@@ -19,20 +28,18 @@ function renderMarkdown(s) {
 }
 
 // If the content starts with a YAML front-matter block (--- ... ---),
-// pull it out and render it as a clean key/value table instead of letting
-// marked squash it into a paragraph. Everything after the block is left
-// alone, except we wrap raw OCR text in a code fence so stray dash-rows
-// don't get parsed as markdown tables.
+// render it as a clean key/value table instead of letting marked squash it
+// into a single paragraph. Non-front-matter content is left untouched.
 function prepareMarkdown(s) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(s);
   if (!m) return s;
   return yamlToTable(m[1]);
 }
 
-// Lightweight YAML → markdown table. Handles top-level scalars, empty lists
-// ([]), and a `line_items:` list of dash-prefixed objects. Skips null/empty
-// values so the table stays compact. Not a real YAML parser — just enough
-// for the invoice payloads this app stores.
+// Lightweight YAML -> markdown table. Handles top-level scalars, empty
+// collections, and a `line_items:` list of dash-prefixed objects. Skips
+// null/empty values so the table stays compact. Not a general YAML parser —
+// just enough for the invoice payloads this app stores.
 function yamlToTable(yaml) {
   const lines = yaml.split(/\r?\n/);
   const fields = [];
@@ -42,7 +49,6 @@ function yamlToTable(yaml) {
 
   for (const raw of lines) {
     if (!raw.trim()) continue;
-
     if (/^line_items:\s*$/.test(raw)) { inItems = true; continue; }
 
     if (inItems) {
@@ -103,11 +109,10 @@ async function safeJson(r) {
 }
 
 function logIngest(message, isError) {
-  const el = document.createElement("div");
-  el.className = "log-item" + (isError ? " err" : "");
-  el.textContent = message;
+  const item = el("div", "log-item" + (isError ? " err" : ""));
+  item.textContent = message;
   const log = $("#ingest-log");
-  log.prepend(el);
+  log.prepend(item);
   while (log.children.length > 8) log.lastChild.remove();
 }
 
@@ -134,6 +139,13 @@ function formatMoney(n) {
 function extOf(name) {
   const m = /\.([^.]+)$/.exec(name);
   return m ? m[1].toLowerCase() : "";
+}
+
+function invoiceUrl(name) {
+  return `/invoices/${encodeURIComponent(name)}`;
+}
+function originalUrl(name) {
+  return `${invoiceUrl(name)}/original`;
 }
 
 /* ---------- connection status ---------- */
@@ -197,8 +209,7 @@ async function loadSessions() {
   }
   list.innerHTML = "";
   sessions.forEach((s) => {
-    const item = document.createElement("div");
-    item.className = "session-item" + (s.session_id === sessionId ? " active" : "");
+    const item = el("div", "session-item" + (s.session_id === sessionId ? " active" : ""));
     item.setAttribute("role", "button");
     item.tabIndex = 0;
     item.innerHTML =
@@ -260,7 +271,7 @@ async function deleteSession(id) {
   loadSessions();
 }
 
-/* ---------- invoices ---------- */
+/* ---------- invoices list ---------- */
 const TRASH_SVG =
   `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" ` +
   `stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">` +
@@ -285,8 +296,7 @@ async function loadInvoices() {
   }
   list.innerHTML = "";
   invs.forEach((d) => {
-    const item = document.createElement("div");
-    item.className = "doc-item";
+    const item = el("div", "doc-item");
     const meta =
       `${d.buyer_state || "—"} · ${d.invoice_date || "—"}` +
       ` · ${d.currency || ""} ${formatMoney(d.total_amount)}`;
@@ -295,11 +305,9 @@ async function loadInvoices() {
       `<span class="doc-item-name">${escapeHtml(d.invoice_no || d.name)}</span>` +
       `<span class="doc-item-meta">${escapeHtml(meta)}</span></button>` +
       `<button class="doc-del" title="Delete invoice" aria-label="Delete">${TRASH_SVG}</button>`;
-    item
-      .querySelector(".doc-item-body")
+    item.querySelector(".doc-item-body")
       .addEventListener("click", () => openPreview(d.name, d.invoice_no || d.name));
-    item
-      .querySelector(".doc-del")
+    item.querySelector(".doc-del")
       .addEventListener("click", () => deleteInvoice(d.name, d.invoice_no || d.name));
     list.appendChild(item);
   });
@@ -309,80 +317,349 @@ async function deleteInvoice(name, label) {
   if (!(await confirmDialog(`Delete invoice "${label}"?`,
     "This permanently removes the stored invoice."))) return;
   try {
-    const r = await fetch(`/invoices/${encodeURIComponent(name)}`, { method: "DELETE" });
+    const r = await fetch(invoiceUrl(name), { method: "DELETE" });
     if (!r.ok && r.status !== 404) throw new Error();
     logIngest(`🗑 removed "${label}"`);
+    if (currentPreview === name) closePreview();
   } catch {
     logIngest(`✕ could not delete "${label}"`, true);
   }
   loadInvoices();
 }
 
-/* ---------- invoice preview modal ---------- */
-async function openPreview(name, label) {
-  const overlay = $("#preview-overlay");
-  $("#preview-title").textContent = label || name;
-  const body = $("#preview-body");
-  body.innerHTML = `<div class="preview-loading">Loading…</div>`;
-  overlay.classList.remove("hidden");
+/* =====================================================================
+   FILE RENDERING — one renderer for every supported format.
+   Used by both the side panel and any other surface that needs a preview.
+   ===================================================================== */
 
-  const origUrl = `/invoices/${encodeURIComponent(name)}/original`;
-  let hasOrig = false;
-  try {
-    hasOrig = (await fetch(origUrl, { method: "HEAD" })).ok;
-  } catch {
-    /* offline */
+// extension -> render strategy
+const PREVIEW_KIND = {
+  pdf: "pdf",
+  html: "frame", htm: "frame",
+  png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", svg: "image", bmp: "image",
+  md: "markdown", markdown: "markdown",
+  txt: "text", log: "text", json: "text",
+  csv: "csv", tsv: "csv",
+  xlsx: "excel", xls: "excel",
+  docx: "word",
+};
+
+// MIME type -> render strategy (fallback when the filename has no extension).
+const MIME_KIND = {
+  "application/pdf": "pdf",
+  "text/html": "frame",
+  "text/markdown": "markdown",
+  "text/csv": "csv",
+  "text/tab-separated-values": "csv",
+  "application/json": "text",
+  "text/plain": "text",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "excel",
+  "application/vnd.ms-excel": "excel",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "word",
+};
+
+// Decide how to render a file: prefer its real extension, fall back to MIME.
+function resolveKind(filename, contentType) {
+  const byExt = PREVIEW_KIND[extOf(filename)];
+  if (byExt) return byExt;
+  const ct = (contentType || "").split(";")[0].trim().toLowerCase();
+  if (ct.startsWith("image/")) return "image";
+  return MIME_KIND[ct] || null;
+}
+
+function showLoading(container, msg) {
+  container.replaceChildren();
+  const d = el("div", "preview-loading");
+  d.textContent = msg || "Loading…";
+  container.appendChild(d);
+}
+
+async function fetchOk(url, as) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r[as]();
+}
+
+// Renders the ORIGINAL file of `name` into `container`, choosing a strategy
+// from its real extension (or Content-Type). Falls back to extracted data for
+// unknown types or when an office viewer library isn't loaded.
+async function renderFile(container, name, origUrl, contentType) {
+  const ext = extOf(name);
+  const kind = resolveKind(name, contentType);
+
+  if (!kind) return renderExtracted(container, name);
+
+  if (kind === "pdf" || kind === "frame") {
+    const frame = el("iframe", "preview-frame");
+    frame.title = name;
+    frame.src = kind === "pdf" ? `${origUrl}#view=FitH` : origUrl;
+    container.replaceChildren(frame);
+    return;
   }
 
-  body.innerHTML =
-    `<div class="preview-tabs">` +
-    (hasOrig ? `<button class="ptab" id="tab-orig">Original document</button>` : "") +
-    `<button class="ptab" id="tab-data">Extracted data</button>` +
-    (hasOrig ? `<a class="ptab ptab--dl" href="${origUrl}" download>Download</a>` : "") +
-    `</div><div class="preview-pane" id="preview-pane"></div>`;
+  if (kind === "image") {
+    const img = el("img", "preview-image");
+    img.alt = name;
+    img.src = origUrl;
+    container.replaceChildren(img);
+    return;
+  }
 
-  const pane = $("#preview-pane");
-  const setActive = (id) =>
-    body.querySelectorAll(".ptab").forEach((b) => b.classList.toggle("active", b.id === id));
+  if (kind === "excel") {
+    if (typeof XLSX === "undefined")
+      return renderExtracted(container, name, "Spreadsheet viewer isn't loaded — showing extracted data.");
+    showLoading(container, "Reading spreadsheet…");
+    const buf = await fetchOk(origUrl, "arrayBuffer");
+    const wb = XLSX.read(buf, { type: "array" });
+    container.replaceChildren(renderWorkbook(wb));
+    enhanceCopyable(container);
+    return;
+  }
 
-const showOriginal = () => {
-  pane.innerHTML = `<iframe class="preview-frame" src="${origUrl}#view=FitH" title="${escapeHtml(label || name)}"></iframe>`;
-  setActive("tab-orig");
-};
-  const showData = async () => {
-    pane.innerHTML = `<div class="preview-loading">Loading…</div>`;
-    try {
-      const r = await fetch(`/invoices/${encodeURIComponent(name)}`);
-      const d = await safeJson(r);
-      if (!r.ok) throw new Error(d.detail || "Not found");
-      const html = renderMarkdown(d.content || "");
-      pane.innerHTML = `<div class="preview-doc">${html}</div>`;
-      enhanceCopyable(pane);
-    } catch (err) {
-      pane.innerHTML = `<div class="preview-loading err">${escapeHtml(err.message)}</div>`;
-    }
-    setActive("tab-data");
+  if (kind === "word") {
+    if (typeof mammoth === "undefined")
+      return renderExtracted(container, name, "Document viewer isn't loaded — showing extracted data.");
+    showLoading(container, "Reading document…");
+    const buf = await fetchOk(origUrl, "arrayBuffer");
+    const { value } = await mammoth.convertToHtml({ arrayBuffer: buf });
+    const doc = el("div", "preview-doc preview-doc--rich");
+    doc.innerHTML = DOMPurify.sanitize(value);
+    container.replaceChildren(doc);
+    enhanceCopyable(doc);
+    return;
+  }
+
+  // text-based formats
+  showLoading(container);
+  const text = await fetchOk(origUrl, "text");
+  if (kind === "markdown") {
+    const doc = el("div", "preview-doc");
+    doc.innerHTML = renderMarkdown(text);
+    container.replaceChildren(doc);
+    enhanceCopyable(doc);
+  } else if (kind === "csv") {
+    const isTsv = ext === "tsv" || /tab-separated/.test(contentType || "");
+    const doc = el("div", "preview-doc");
+    doc.innerHTML = csvToTable(text, isTsv ? "\t" : ",");
+    container.replaceChildren(doc);
+    enhanceCopyable(doc);
+  } else {
+    const pre = el("pre", "preview-pre");
+    pre.textContent = text;
+    container.replaceChildren(pre);
+  }
+}
+
+// Extracted-data fallback (the parsed YAML the agent stored).
+async function renderExtracted(container, name, note) {
+  showLoading(container, note ? note : "Loading extracted data…");
+  const r = await fetch(invoiceUrl(name));
+  const d = await safeJson(r);
+  if (!r.ok) throw new Error(d.detail || "Not found");
+  const doc = el("div", "preview-doc");
+  doc.innerHTML =
+    (note ? `<p class="preview-note">${escapeHtml(note)}</p>` : "") +
+    renderMarkdown(d.content || "");
+  container.replaceChildren(doc);
+  enhanceCopyable(doc);
+}
+
+// Build a DOM node for an entire workbook, with a sheet switcher when there's
+// more than one sheet. Rows are capped so a huge book can't lock the tab.
+const SHEET_ROW_CAP = 1000;
+
+function renderWorkbook(wb) {
+  const wrap = el("div", "preview-doc");
+  const names = wb.SheetNames.filter((n) => wb.Sheets[n]);
+  if (!names.length) {
+    wrap.innerHTML = `<p class="preview-note">This workbook has no sheets.</p>`;
+    return wrap;
+  }
+
+  const tableFor = (sheetName) => {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {
+      header: 1, blankrows: false, defval: "",
+    });
+    return buildHtmlTable(rows.slice(0, SHEET_ROW_CAP));
   };
 
-  $("#tab-data").addEventListener("click", showData);
-  if (hasOrig) {
-    $("#tab-orig").addEventListener("click", showOriginal);
-    showOriginal(); // default to the real document
-  } else {
-    showData();
+  if (names.length === 1) {
+    wrap.innerHTML = tableFor(names[0]);
+    return wrap;
   }
+
+  const tabs = el("div", "sheet-tabs");
+  const pane = el("div", "sheet-pane");
+  names.forEach((nm, i) => {
+    const b = el("button", "sheet-tab" + (i === 0 ? " active" : ""));
+    b.type = "button";
+    b.textContent = nm;
+    b.addEventListener("click", () => {
+      tabs.querySelectorAll(".sheet-tab").forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      pane.innerHTML = tableFor(nm);
+      enhanceCopyable(pane);
+    });
+    tabs.appendChild(b);
+  });
+  pane.innerHTML = tableFor(names[0]);
+  wrap.append(tabs, pane);
+  return wrap;
+}
+
+function buildHtmlTable(rows) {
+  if (!rows.length) return `<p class="preview-note">Empty sheet.</p>`;
+  const head = rows[0].map((c) => `<th>${escapeHtml(c)}</th>`).join("");
+  const body = rows.slice(1)
+    .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`)
+    .join("");
+  return `<table class="preview-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+/* ---------- side panel (dock) ---------- */
+function showDock() {
+  $("#preview-dock").hidden = false;
+  $("#preview-resizer").hidden = false;
 }
 
 function closePreview() {
-  $("#preview-overlay").classList.add("hidden");
+  currentPreview = null;
+  $("#preview-dock").hidden = true;
+  $("#preview-resizer").hidden = true;
+  $("#preview-pane").replaceChildren();
+  $("#preview-tabs").replaceChildren();
 }
+
+async function openPreview(name, label) {
+  currentPreview = name;
+  $("#preview-title").textContent = label || name;
+  const tabs = $("#preview-tabs");
+  const pane = $("#preview-pane");
+  showDock();
+  tabs.replaceChildren();
+  showLoading(pane);
+
+  const origUrl = originalUrl(name);
+
+  // Fetch the extracted JSON once. It feeds the "Extracted data" tab and,
+  // crucially, gives us `source_file` — the real filename with its true
+  // extension, which the stored `name` may have lost to slugifying.
+  let content = "";
+  let realName = name;
+  try {
+    const r = await fetch(invoiceUrl(name));
+    const d = await safeJson(r);
+    if (r.ok) {
+      content = d.content || "";
+      const sf = /(?:^|\n)\s*source_file:\s*(.+?)\s*(?:\n|$)/.exec(content);
+      if (sf) realName = sf[1].trim().replace(/^["']|["']$/g, "");
+      if (!label) $("#preview-title").textContent = d.invoice_no || realName || name;
+    }
+  } catch {
+    /* offline */
+  }
+  if (currentPreview !== name) return;
+
+  // Probe the original file: does it exist, and what type does the server call it?
+  let hasOrig = false;
+  let contentType = "";
+  try {
+    const h = await fetch(origUrl, { method: "HEAD" });
+    hasOrig = h.ok;
+    contentType = h.headers.get("content-type") || "";
+  } catch {
+    /* offline */
+  }
+  if (currentPreview !== name) return;
+
+  const setActive = (id) =>
+    tabs.querySelectorAll(".ptab").forEach((b) => b.classList.toggle("active", b.id === id));
+
+  const showOriginal = async () => {
+    setActive("tab-orig");
+    showLoading(pane);
+    try {
+      await renderFile(pane, realName, origUrl, contentType);
+    } catch {
+      pane.innerHTML =
+        `<div class="preview-loading err">Couldn't render this file. ` +
+        `<a href="${origUrl}" download>Download it instead.</a></div>`;
+    }
+  };
+
+  const showData = () => {
+    setActive("tab-data");
+    const doc = el("div", "preview-doc");
+    doc.innerHTML = renderMarkdown(content);
+    pane.replaceChildren(doc);
+    enhanceCopyable(doc);
+  };
+
+  if (hasOrig) {
+    const t = el("button", "ptab"); t.id = "tab-orig"; t.textContent = "Original document";
+    t.addEventListener("click", showOriginal);
+    tabs.appendChild(t);
+  }
+  const td = el("button", "ptab"); td.id = "tab-data"; td.textContent = "Extracted data";
+  td.addEventListener("click", showData);
+  tabs.appendChild(td);
+  if (hasOrig) {
+    const dl = el("a", "ptab ptab--dl");
+    dl.href = origUrl; dl.setAttribute("download", ""); dl.textContent = "Download";
+    tabs.appendChild(dl);
+  }
+
+  if (hasOrig) showOriginal();
+  else showData();
+}
+
 $("#preview-close").addEventListener("click", closePreview);
-$("#preview-overlay").addEventListener("mousedown", (e) => {
-  if (e.target.id === "preview-overlay") closePreview();
-});
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !$("#preview-overlay").classList.contains("hidden")) closePreview();
+  if (e.key === "Escape" && !$("#preview-dock").hidden) closePreview();
 });
+
+/* ---------- resizable splitter ---------- */
+(function initResizer() {
+  const panel = $(".panel--chat");
+  const dock = $("#preview-dock");
+  const resizer = $("#preview-resizer");
+
+  const saved = parseFloat(localStorage.getItem(PREVIEW_WIDTH_KEY));
+  if (saved) dock.style.flexBasis = saved + "px";
+
+  let dragging = false;
+  const onMove = (clientX) => {
+    const rect = panel.getBoundingClientRect();
+    const min = 320;
+    const max = rect.width - 360; // keep at least 360px for chat
+    let w = rect.right - clientX;
+    w = Math.max(min, Math.min(w, Math.max(min, max)));
+    dock.style.flexBasis = w + "px";
+  };
+
+  const start = (e) => {
+    dragging = true;
+    resizer.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  };
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove("dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    localStorage.setItem(PREVIEW_WIDTH_KEY, parseFloat(dock.style.flexBasis) || "");
+  };
+
+  resizer.addEventListener("mousedown", start);
+  window.addEventListener("mousemove", (e) => dragging && onMove(e.clientX));
+  window.addEventListener("mouseup", end);
+  resizer.addEventListener("touchstart", (e) => start(e.touches[0] ? e : e), { passive: false });
+  window.addEventListener("touchmove", (e) => dragging && e.touches[0] && onMove(e.touches[0].clientX), { passive: false });
+  window.addEventListener("touchend", end);
+})();
 
 /* ---------- upload ---------- */
 const fileInput = $("#file-input");
@@ -412,7 +689,7 @@ dropzone.addEventListener("drop", (e) => {
   }
 });
 
-// Duplicate dialog → resolves "replace" | "keep_both" | null (cancel).
+// Duplicate dialog -> resolves "replace" | "keep_both" | null (cancel).
 function duplicateDialog(info) {
   return new Promise((resolve) => {
     const overlay = $("#dup-overlay");
@@ -502,12 +779,7 @@ $("#file-form").addEventListener("submit", async (e) => {
   btn.disabled = true;
   btn.textContent = files.length > 1 ? `Extracting ${files.length}…` : "Extracting…";
 
-  let stored = 0;
-  if (files.length === 1) {
-    stored = await uploadSingle(files[0]);
-  } else {
-    stored = await uploadBulk(files);
-  }
+  const stored = files.length === 1 ? await uploadSingle(files[0]) : await uploadBulk(files);
 
   btn.disabled = false;
   btn.textContent = "Extract & Store";
@@ -541,30 +813,23 @@ function resetThread() {
 
 function addMessage(role, text, chart, sources, aggregated) {
   clearEmptyState();
-  const wrap = document.createElement("div");
-  wrap.className = `msg msg--${role}`;
+  const wrap = el("div", `msg msg--${role}`);
 
-  const label = document.createElement("div");
-  label.className = "msg-role";
+  const label = el("div", "msg-role");
   label.textContent = role === "user" ? "You" : "Agent";
   wrap.append(label);
 
   if (text) {
-    const body = document.createElement("div");
-    body.className = "msg-body";
+    const body = el("div", "msg-body");
     body.innerHTML = renderMarkdown(text);
     wrap.append(body);
     enhanceCopyable(body);
   }
   if (chart) wrap.append(buildChart(chart));
 
-  // Inline preview cards for the top-3 source invoices (assistant only).
-  // The old project's score filter doesn't apply here — `sources` is already
-  // a deduped list of invoice names without scores — so we just cap at 3.
+  // Inline source cards for the top-3 invoices the agent read (assistant only).
   if (role === "assistant" && sources && sources.length) {
-    sources.slice(0, 3).forEach((name, i) => {
-      wrap.appendChild(buildSourcePreview(name, i + 1));
-    });
+    sources.slice(0, 3).forEach((name, i) => wrap.appendChild(buildSourceCard(name, i + 1)));
   }
   if (sources && sources.length) wrap.append(buildSources(sources));
   if (aggregated && aggregated.length) wrap.append(buildAggregated(aggregated));
@@ -576,8 +841,7 @@ function addMessage(role, text, chart, sources, aggregated) {
 
 // Preview chip for one invoice name.
 function srcChip(name) {
-  const chip = document.createElement("button");
-  chip.className = "src-chip";
+  const chip = el("button", "src-chip");
   chip.textContent = name;
   chip.title = `Preview ${name}`;
   chip.addEventListener("click", () => openPreview(name, name));
@@ -586,22 +850,18 @@ function srcChip(name) {
 
 // Specific invoices the agent read.
 function buildSources(names) {
-  const box = document.createElement("div");
-  box.className = "src-chips";
+  const box = el("div", "src-chips");
   box.innerHTML = `<p class="src-label">Used:</p>`;
   names.forEach((n) => box.appendChild(srcChip(n)));
   return box;
 }
 
-// Provenance for aggregate answers: "Based on all N invoices" → expands to chips.
+// Provenance for aggregate answers: "Based on all N invoices" -> expands to chips.
 function buildAggregated(names) {
-  const box = document.createElement("div");
-  box.className = "agg-sources";
-  const toggle = document.createElement("button");
-  toggle.className = "agg-toggle";
+  const box = el("div", "agg-sources");
+  const toggle = el("button", "agg-toggle");
   toggle.textContent = `Based on all ${names.length} invoice${names.length > 1 ? "s" : ""}`;
-  const list = document.createElement("div");
-  list.className = "agg-list";
+  const list = el("div", "agg-list");
   names.forEach((n) => list.appendChild(srcChip(n)));
   toggle.addEventListener("click", () => {
     const open = list.classList.toggle("open");
@@ -611,100 +871,19 @@ function buildAggregated(names) {
   return box;
 }
 
-/* ---------- source invoice preview cards (file-type-aware) ---------- */
-// Ported from the old Agent · Vector project: chunk-preview inline cards that
-// lazily fetch a source and render it differently based on file extension.
-const PREVIEW_KIND = {
-  pdf: "frame", html: "frame", htm: "frame",
-  png: "frame", jpg: "frame", jpeg: "frame", gif: "frame", webp: "frame",
-  md: "markdown", markdown: "markdown",
-  txt: "text", log: "text", json: "text",
-  csv: "csv", tsv: "csv",
-};
-
-function buildSourcePreview(name, rank) {
-  const box = document.createElement("div");
-  box.className = "preview";
-  const origUrl = `/invoices/${encodeURIComponent(name)}/original`;
-
+/* ---------- source cards (open in the side panel) ---------- */
+function buildSourceCard(name, rank) {
+  const box = el("div", "preview");
+  const origUrl = originalUrl(name);
   box.innerHTML =
     `<div class="preview-head">` +
     `<span class="preview-label">Source ${rank}</span>` +
     `<span class="preview-name">${escapeHtml(name)}</span></div>` +
-    `<div class="preview-body"></div>` +
     `<div class="preview-actions">` +
-    `<button type="button" class="preview-toggle">Preview</button>` +
-    `<button type="button" class="preview-open" title="Open in modal">Open</button>` +
+    `<button type="button" class="preview-open">View</button>` +
     `<a class="preview-dl" href="${origUrl}" download>Download</a></div>`;
-
-  const body = box.querySelector(".preview-body");
-  const toggle = box.querySelector(".preview-toggle");
-  let loaded = false;
-
-  toggle.addEventListener("click", async () => {
-    const open = body.classList.toggle("open");
-    toggle.textContent = open ? "Hide" : "Preview";
-    if (!open || loaded) return;
-    loaded = true;
-    try {
-      await renderSourcePreview(body, name, origUrl);
-    } catch {
-      loaded = false;
-      body.innerHTML =
-        `<div class="preview-loading err">Couldn't load preview. ` +
-        `<a href="${origUrl}" download>Download instead</a></div>`;
-    }
-  });
-
   box.querySelector(".preview-open").addEventListener("click", () => openPreview(name, name));
   return box;
-}
-
-async function renderSourcePreview(body, name, origUrl) {
-  const ext = extOf(name);
-  const kind = PREVIEW_KIND[ext];
-
-  // Office/binary types we can't render inline — fall back to the extracted
-  // YAML so the user still sees the structured data the agent read.
-  if (!kind) {
-    body.innerHTML = `<div class="preview-loading">Loading extracted data…</div>`;
-    const r = await fetch(`/invoices/${encodeURIComponent(name)}`);
-    const d = await safeJson(r);
-    if (!r.ok) throw new Error();
-    const html = renderMarkdown(d.content || "");
-    body.innerHTML = `<div class="preview-doc">${html}</div>`;
-    enhanceCopyable(body);
-    return;
-  }
-
-  body.innerHTML = `<div class="preview-loading">Loading…</div>`;
-  const r = await fetch(origUrl);
-  if (!r.ok) throw new Error();
-
-  if (kind === "frame") {
-    const url = URL.createObjectURL(await r.blob());
-    const frame = document.createElement("iframe");
-    frame.className = "preview-frame";
-    frame.title = name;
-    frame.src = ext === "pdf" ? `${url}#toolbar=0&view=FitH` : url;
-    body.innerHTML = "";
-    body.appendChild(frame);
-    return;
-  }
-
-  const text = await r.text();
-  if (kind === "markdown") {
-    body.innerHTML = `<div class="preview-doc">${renderMarkdown(text)}</div>`;
-  } else if (kind === "csv") {
-    const delim = ext === "tsv" ? "\t" : ",";
-    body.innerHTML = `<div class="preview-doc">${csvToTable(text, delim)}</div>`;
-  } else {
-    const pre = document.createElement("pre");
-    pre.className = "preview-pre";
-    pre.textContent = text;
-    body.innerHTML = "";
-    body.appendChild(pre);
-  }
 }
 
 // Minimal RFC-4180-ish CSV parser (handles quotes and embedded commas/newlines).
@@ -728,7 +907,7 @@ function parseCSV(text, delim) {
 }
 
 function csvToTable(text, delim) {
-  const rows = parseCSV(text, delim).slice(0, 200); // cap for big files
+  const rows = parseCSV(text, delim).slice(0, 500); // cap for big files
   if (!rows.length) return "";
   const head = rows[0].map((c) => `<th>${escapeHtml(c)}</th>`).join("");
   const bodyRows = rows.slice(1)
@@ -738,7 +917,6 @@ function csvToTable(text, delim) {
 }
 
 /* ---------- charts ---------- */
-// Curated categorical palette (distinct but muted — reads well on white).
 const PALETTE = [
   "#4e79a7", "#f28e2b", "#e15759", "#76b7b2", "#59a14f",
   "#edc948", "#b07aa1", "#ff9da7", "#9c755f", "#bab0ac",
@@ -747,29 +925,7 @@ function palette(n) {
   return Array.from({ length: n }, (_, i) => PALETTE[i % PALETTE.length]);
 }
 
-// Draw percentage labels on pie slices.
-Chart.register({
-  id: "piePercent",
-  afterDatasetsDraw(chart) {
-    if (chart.config.type !== "pie") return;
-    const ctx = chart.ctx;
-    const ds = chart.data.datasets[0].data;
-    const total = ds.reduce((a, b) => a + (Number(b) || 0), 0);
-    if (!total) return;
-    ctx.save();
-    ctx.font = "600 12px Inter, sans-serif";
-    ctx.fillStyle = "#fff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    chart.getDatasetMeta(0).data.forEach((arc, i) => {
-      const pct = ((Number(ds[i]) || 0) / total) * 100;
-      if (pct < 4) return; // skip slivers
-      const p = arc.tooltipPosition();
-      ctx.fillText(pct.toFixed(1) + "%", p.x, p.y);
-    });
-    ctx.restore();
-  },
-});
+
 
 // Export a chart canvas as a PNG (on a white background).
 function downloadChart(canvas, title) {
@@ -787,8 +943,7 @@ function downloadChart(canvas, title) {
 }
 
 function buildChart(spec) {
-  const box = document.createElement("div");
-  box.className = "chart-box";
+  const box = el("div", "chart-box");
   const canvas = document.createElement("canvas");
   box.appendChild(canvas);
 
@@ -804,7 +959,7 @@ function buildChart(spec) {
         data: spec.values,
         backgroundColor: isPie || isBar ? cats : "rgba(78,121,167,0.14)",
         borderColor: isPie ? "#ffffff" : accent,
-        borderWidth: isPie ? 2 : 2,
+        borderWidth: 2,
         fill: !isPie && !isBar,
         tension: 0.25,
         pointBackgroundColor: accent,
@@ -815,7 +970,28 @@ function buildChart(spec) {
   const options = {
     responsive: true,
     plugins: {
-      legend: { display: isPie, position: "right", labels: { font: { family: "Inter" } } },
+      legend: {
+        display: isPie,
+        position: "right",
+        labels: {
+          font: { family: "Inter" },
+          generateLabels(chart) {
+            const data = chart.data;
+            const ds = data.datasets[0].data;
+            const total = ds.reduce((a, b) => a + (Number(b) || 0), 0);
+            return data.labels.map((label, i) => {
+              const pct = total ? ((Number(ds[i]) || 0) / total) * 100 : 0;
+              return {
+                text: `${label} ${pct.toFixed(1)}%`,
+                fillStyle: data.datasets[0].backgroundColor[i],
+                strokeStyle: data.datasets[0].backgroundColor[i],
+                lineWidth: 0,
+                index: i,
+              };
+            });
+          },
+        },
+      },
       title: { display: !!spec.title, text: spec.title, font: { family: "Inter", size: 13 } },
     },
     scales: isPie
@@ -824,8 +1000,7 @@ function buildChart(spec) {
   };
   new Chart(canvas.getContext("2d"), { type: spec.type, data, options });
 
-  const dl = document.createElement("button");
-  dl.className = "chart-dl";
+  const dl = el("button", "chart-dl");
   dl.type = "button";
   dl.textContent = "↓ Download PNG";
   dl.addEventListener("click", () => downloadChart(canvas, spec.title));
@@ -835,8 +1010,7 @@ function buildChart(spec) {
 
 function addTyping() {
   clearEmptyState();
-  const wrap = document.createElement("div");
-  wrap.className = "msg msg--assistant msg-typing";
+  const wrap = el("div", "msg msg--assistant msg-typing");
   wrap.innerHTML =
     `<div class="msg-role">Agent</div>` +
     `<div class="msg-body"><span class="dotpulse"></span><span class="dotpulse"></span><span class="dotpulse"></span></div>`;
@@ -897,12 +1071,9 @@ $("#ask-form").addEventListener("submit", (e) => {
 });
 
 /* ---------- suggestions + saved questions ---------- */
-
 const QUESTIONS_CSV_URL = "/static/questions.csv";
 const SUGGESTION_COUNT = 3;
 
-// Defensive fallback so the UI never looks empty if questions.csv is missing
-// or malformed. Logged to console.warn so dev doesn't silently get fooled.
 const FALLBACK_SAMPLES = [
   "Give total tax amount from all invoices",
   "State wise sales pie chart",
@@ -947,9 +1118,8 @@ function pickRandom(arr, n) {
 }
 
 function sampleChip(q) {
-  const b = document.createElement("button");
+  const b = el("button", "suggestion");
   b.type = "button";
-  b.className = "suggestion";
   b.textContent = q;
   b.addEventListener("click", () => {
     askInput.value = q;
@@ -959,23 +1129,15 @@ function sampleChip(q) {
   return b;
 }
 
-// Render the 3 random onboarding chips into the bar above the composer.
-// Only shown when there's no active session; hidden once a question is sent.
 function renderSuggestions() {
   const box = $("#suggestions");
   if (!box) return;
-  // Don't show in the middle of an active conversation.
-  if (sessionId) {
-    hideSuggestions();
-    return;
-  }
-  if (!csvQuestions.length) {
+  if (sessionId || !csvQuestions.length) {
     hideSuggestions();
     return;
   }
   box.innerHTML = "";
-  const label = document.createElement("span");
-  label.className = "suggestions-label";
+  const label = el("span", "suggestions-label");
   label.textContent = "Try asking";
   box.appendChild(label);
   pickRandom(csvQuestions, SUGGESTION_COUNT).forEach((q) => box.appendChild(sampleChip(q)));
@@ -989,11 +1151,7 @@ function hideSuggestions() {
   box.innerHTML = "";
 }
 
-// Row 2 — the user's own saved questions, kept across sessions via localStorage.
 const SAVED_KEY = "invoice-agent.saved";
-// Flip to true once a backend route exists at /save_question that persists
-// saved questions to /static/user_question.csv. Until then, keep it false so
-// devtools doesn't fill with 404s on every star-save.
 const SYNC_SAVED_TO_SERVER = false;
 const SAVE_QUESTION_ENDPOINT = "/save_question";
 
@@ -1008,8 +1166,6 @@ function setSaved(list) {
   localStorage.setItem(SAVED_KEY, JSON.stringify(list));
 }
 
-// Best-effort write to the backend; guarded so it doesn't fire until the
-// endpoint actually exists.
 async function persistSavedQuestion(text) {
   if (!SYNC_SAVED_TO_SERVER) return;
   try {
@@ -1019,7 +1175,7 @@ async function persistSavedQuestion(text) {
       body: JSON.stringify({ question: text }),
     });
   } catch {
-    /* network down — localStorage already has it, that's enough */
+    /* network down — localStorage already has it */
   }
 }
 
@@ -1047,16 +1203,13 @@ function renderSaved() {
     return;
   }
   bar.classList.remove("hidden");
-  const label = document.createElement("span");
-  label.className = "suggestions-label";
+  const label = el("span", "suggestions-label");
   label.textContent = "Saved";
   bar.appendChild(label);
   saved.forEach((q) => {
-    const chip = document.createElement("span");
-    chip.className = "saved-chip";
-    const del = document.createElement("button");
+    const chip = el("span", "saved-chip");
+    const del = el("button", "saved-x");
     del.type = "button";
-    del.className = "saved-x";
     del.textContent = "×";
     del.title = "Delete saved question";
     del.addEventListener("click", () => deleteSaved(q));
@@ -1080,7 +1233,7 @@ $("#new-chat").addEventListener("click", () => {
 /* ---------- restore active session ---------- */
 async function restoreSession() {
   if (!sessionId) {
-    renderSuggestions(); // defensive — show chips if we land with no session
+    renderSuggestions();
     return;
   }
   try {
@@ -1096,41 +1249,33 @@ async function restoreSession() {
       clearEmptyState();
       hideSuggestions();
     } else {
-      renderSuggestions(); // empty session — treat like a fresh chat
+      renderSuggestions();
     }
-    msgs.forEach((m) =>
-      addMessage(m.role, m.content, m.chart, m.sources, m.aggregated)
-    );
+    msgs.forEach((m) => addMessage(m.role, m.content, m.chart, m.sources, m.aggregated));
   } catch {
-    /* offline — leave empty state */
+    /* offline */
   }
 }
 
 /* ---------- copy / excel action buttons ---------- */
 function enhanceCopyable(container) {
-  // Code blocks → Copy
   container.querySelectorAll("pre").forEach((pre) => {
     if (pre.dataset.enhanced) return;
     pre.dataset.enhanced = "1";
-    const wrap = document.createElement("div");
-    wrap.className = "copy-wrap";
+    const wrap = el("div", "copy-wrap");
     pre.parentNode.insertBefore(wrap, pre);
     wrap.appendChild(pre);
     wrap.appendChild(
       makeActionBtn("Copy", "Copied", async () => {
-        await navigator.clipboard.writeText(
-          pre.querySelector("code")?.innerText ?? pre.innerText
-        );
+        await navigator.clipboard.writeText(pre.querySelector("code")?.innerText ?? pre.innerText);
       })
     );
   });
 
-  // Tables → Download as CSV
   container.querySelectorAll("table").forEach((table) => {
     if (table.dataset.enhanced) return;
     table.dataset.enhanced = "1";
-    const wrap = document.createElement("div");
-    wrap.className = "copy-wrap copy-wrap--table";
+    const wrap = el("div", "copy-wrap copy-wrap--table");
     table.parentNode.insertBefore(wrap, table);
     wrap.appendChild(table);
     wrap.appendChild(
@@ -1142,9 +1287,8 @@ function enhanceCopyable(container) {
 }
 
 function makeActionBtn(label, doneLabel, action) {
-  const btn = document.createElement("button");
+  const btn = el("button", "copy-btn");
   btn.type = "button";
-  btn.className = "copy-btn";
   btn.textContent = label;
   btn.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -1170,9 +1314,7 @@ function tableToCSV(table) {
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return Array.from(table.rows)
-    .map((row) =>
-      Array.from(row.cells).map((c) => escape(c.innerText.trim())).join(",")
-    )
+    .map((row) => Array.from(row.cells).map((c) => escape(c.innerText.trim())).join(","))
     .join("\r\n");
 }
 

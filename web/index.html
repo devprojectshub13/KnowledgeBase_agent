@@ -50,10 +50,10 @@
       <form id="file-form" class="ingest-form">
         <label class="dropzone" id="dropzone">
           <input id="file-input" type="file" hidden multiple
-            accept=".pdf,.png,.jpg,.jpeg,.docx,.doc,.xlsx,.xls,.html,.htm,.md,.txt,.csv" />
+            accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,.docx,.doc,.xlsx,.xls,.html,.htm,.md,.txt,.csv,.tsv,.json" />
           <span class="dropzone-icon">↑</span>
           <span class="dropzone-text" id="dropzone-text">Choose invoice(s) or drop here</span>
-          <span class="dropzone-hint">PDF · IMAGE · XLSX · DOCX · CSV</span>
+          <span class="dropzone-hint">PDF · IMAGE · XLSX · DOCX · CSV · MD</span>
         </label>
         <button class="btn btn--solid" type="submit">Extract &amp; Store</button>
       </form>
@@ -71,36 +71,53 @@
       </div>
     </aside>
 
-    <!-- Conversation -->
+    <!-- Conversation + preview split -->
     <section class="panel panel--chat">
-      <div class="panel-head chat-head">
-        <div>
-          <h2 class="panel-title">Ask</h2>
-          <p class="panel-desc" id="session-label">No active session</p>
+      <!-- Chat -->
+      <div class="chat-main">
+        <div class="panel-head chat-head">
+          <div>
+            <h2 class="panel-title">Ask</h2>
+            <p class="panel-desc" id="session-label">No active session</p>
+          </div>
         </div>
+
+        <div id="thread" class="thread">
+          <div class="empty-state" id="empty-state">
+            <div class="empty-mark">₹</div>
+            <p>Ask about your invoices — totals, tax, and charts.</p>
+          </div>
+        </div>
+
+        <!-- CSV-backed onboarding suggestions (3 random, fill-on-click). -->
+        <div class="suggestions hidden" id="suggestions"></div>
+
+        <!-- Saved questions (★ Save button lives in the composer below). -->
+        <div class="samples-bar hidden" id="saved-bar"></div>
+
+        <form id="ask-form" class="composer">
+          <div class="composer-main">
+            <textarea id="ask-input" class="composer-input" rows="1" placeholder="Ask about your invoices…"
+              autocomplete="off"></textarea>
+          </div>
+          <button id="save-q" class="btn btn--ghost composer-btn" type="button" title="Save this question">★
+            Save</button>
+          <button id="ask-btn" class="btn btn--solid composer-btn" type="submit">Send</button>
+        </form>
       </div>
 
-      <div id="thread" class="thread">
-        <div class="empty-state" id="empty-state">
-          <div class="empty-mark">₹</div>
-          <p>Ask about your invoices — totals, tax, and charts.</p>
+      <!-- Draggable divider (shown only while a preview is open). -->
+      <div class="preview-resizer" id="preview-resizer" hidden></div>
+
+      <!-- Preview dock -->
+      <div class="preview-dock" id="preview-dock" hidden>
+        <div class="preview-dock-head">
+          <span class="preview-dock-title" id="preview-title">Preview</span>
+          <button class="preview-dock-close" id="preview-close" aria-label="Close preview">×</button>
         </div>
+        <div class="preview-tabs" id="preview-tabs"></div>
+        <div class="preview-pane" id="preview-pane"></div>
       </div>
-
-      <!-- CSV-backed onboarding suggestions (3 random, fill-on-click). -->
-      <div class="suggestions hidden" id="suggestions"></div>
-
-      <!-- Saved questions (★ Save button lives in the composer below). -->
-      <div class="samples-bar hidden" id="saved-bar"></div>
-
-      <form id="ask-form" class="composer">
-        <div class="composer-main">
-          <textarea id="ask-input" class="composer-input" rows="1" placeholder="Ask about your invoices…"
-            autocomplete="off"></textarea>
-        </div>
-        <button id="save-q" class="btn btn--ghost composer-btn" type="button" title="Save this question">★ Save</button>
-        <button id="ask-btn" class="btn btn--solid composer-btn" type="submit">Send</button>
-      </form>
     </section>
   </main>
 
@@ -129,20 +146,13 @@
     </div>
   </div>
 
-  <!-- Invoice preview modal -->
-  <div id="preview-overlay" class="overlay hidden">
-    <div class="modal modal--preview" role="dialog" aria-modal="true">
-      <div class="preview-modal-head">
-        <span class="preview-modal-title" id="preview-title">Invoice</span>
-        <button class="preview-modal-close" id="preview-close" aria-label="Close">×</button>
-      </div>
-      <div class="preview-modal-body" id="preview-body"></div>
-    </div>
-  </div>
-
+  <!-- Vendored libraries -->
   <script src="/static/js/marked.min.js"></script>
   <script src="/static/js/purify.min.js"></script>
   <script src="/static/js/chart.umd.min.js"></script>
+  <!-- New: spreadsheet + Word viewers (see note below for how to fetch these) -->
+  <script src="/static/js/xlsx.full.min.js"></script>
+  <script src="/static/js/mammoth.browser.min.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 
