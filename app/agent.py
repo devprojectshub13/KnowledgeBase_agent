@@ -31,6 +31,14 @@ SYSTEM_PROMPT = (
     "questions.\n"
     "\n"
     "Rules:\n"
+    "- NEVER guess or fabricate. The only data you have is the fields returned by "
+    "the tools (invoice_no, dates, parties, states, cities, GSTINs, amounts, tax, "
+    "currency, HSN, line items). If the user asks about a status or attribute "
+    "that is NOT among those fields — e.g. cancelled, paid/unpaid, overdue, "
+    "approved, returned, discount — do NOT invent an answer or an invoice number. "
+    "Say plainly that the invoices do not track that information. Do not 'reason "
+    "out loud' toward a guess; if you cannot point to it in a tool result, you do "
+    "not know it.\n"
     "- NEVER add up or compute figures yourself — always call "
     "aggregate_invoices and report its numbers exactly. Doing arithmetic by hand "
     "is forbidden because it is error-prone.\n"
@@ -216,7 +224,7 @@ async def answer_question(
             model=settings.llm_model,
             messages=messages,
             tools=TOOLS,
-            temperature=0.1,
+            temperature=0,  # deterministic — minimise "creative" guessing
         )
         msg = completion.choices[0].message
 
