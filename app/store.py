@@ -244,3 +244,87 @@ def delete_invoice(name: str) -> bool:
     if orig:
         orig.unlink(missing_ok=True)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Finance documents (non-invoice). Stored as full parsed text so the agent can
+# read and answer questions about them. Kept apart from the invoice analytics.
+# ---------------------------------------------------------------------------
+
+DOCS_DIR = INVOICE_DIR / "documents"
+DOCS_ORIGINALS_DIR = DOCS_DIR / "originals"
+
+
+def _doc_path(name: str) -> Path:
+    path = (DOCS_DIR / f"{Path(name).stem}.md").resolve()
+    if DOCS_DIR.resolve() not in path.parents:
+        raise ValueError("invalid document name")
+    return path
+
+
+def save_document(title: str, body: str, filename: str, data: bytes) -> str:
+    """Store a finance document as ``frontmatter + full text`` and keep its
+    original file. Returns the stored name."""
+    DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    stem = _slug(title or filename)
+    path = DOCS_DIR / f"{stem}.md"
+    n = 2
+    while path.exists():
+        path = DOCS_DIR / f"{stem}-{n}.md"
+        n += 1
+    front = yaml.safe_dump(
+        {"title": title, "source_file": filename, "type": "document"},
+        sort_keys=False,
+        allow_unicode=True,
+    ).strip()
+    path.write_text(f"---\n{front}\n---\n\n{body.strip()}\n", encoding="utf-8")
+    # Keep the original for download/preview.
+    DOCS_ORIGINALS_DIR.mkdir(parents=True, exist_ok=True)
+    ext = Path(filename).suffix.lower() or ".bin"
+    (DOCS_ORIGINALS_DIR / f"{path.stem}{ext}").write_bytes(data)
+    return path.stem
+
+
+def list_documents() -> list[dict]:
+    """Title/name of every stored finance document."""
+    if not DOCS_DIR.exists():
+        return []
+    rows: list[dict] = []
+    for path in sorted(DOCS_DIR.glob("*.md")):
+        front, _ = _parse(path.read_text(encoding="utf-8"))
+        rows.append(
+            {
+                "name": path.stem,
+                "title": front.get("title") or path.stem,
+                "source_file": front.get("source_file"),
+            }
+        )
+    return rows
+
+
+def read_document(name: str) -> str | None:
+    """Full text of one finance document (truncated to the read budget)."""
+    path = _doc_path(name)
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8")[: settings.doc_read_char_limit]
+
+
+def doc_original_path(name: str) -> Path | None:
+    stem = Path(name).stem
+    if not DOCS_ORIGINALS_DIR.exists():
+        return None
+    for path in DOCS_ORIGINALS_DIR.glob(f"{stem}.*"):
+        return path
+    return None
+
+
+def delete_document(name: str) -> bool:
+    path = _doc_path(name)
+    if not path.exists():
+        return False
+    path.unlink()
+    orig = doc_original_path(name)
+    if orig:
+        orig.unlink(missing_ok=True)
+    return True

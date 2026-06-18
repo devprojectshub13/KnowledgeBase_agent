@@ -3,12 +3,25 @@ import json
 from app.config import settings
 from app.llm import chat_completion
 from app.schemas import AskResponse, ChartSpec
-from app.store import aggregate, list_invoices, read_invoice
+from app.store import (
+    aggregate,
+    list_documents,
+    list_invoices,
+    read_document,
+    read_invoice,
+)
 
 SYSTEM_PROMPT = (
-    "You are an invoice analytics assistant. You answer ONLY from the stored "
-    "invoices, accessed through your tools — never from outside knowledge, and "
-    "never invent numbers.\n"
+    "You are a finance assistant. You answer ONLY from the user's stored data — "
+    "their invoices AND any uploaded finance documents (bank statements, P&L, "
+    "reports, etc.) — accessed through your tools. Never use outside knowledge "
+    "and never invent numbers or facts.\n"
+    "\n"
+    "Invoices are structured (use the aggregate/list/read invoice tools for "
+    "totals, charts, and invoice details). Finance documents are free-form text — "
+    "for questions about them, use list_documents to find the right one and "
+    "read_document to read it, then answer from its content and name the document. "
+    "If a question could relate to either, check both.\n"
     "\n"
     "Tools:\n"
     "- `aggregate_invoices(metric, group_by, where)`: the ONLY correct way to "
@@ -130,6 +143,34 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "list_documents",
+            "description": (
+                "List the uploaded finance documents (bank statements, P&L, "
+                "reports, etc.) — these are NOT invoices. Returns name + title."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_document",
+            "description": (
+                "Read the full text of one finance document by its name, to "
+                "answer questions about it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Document name."}
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "render_chart",
             "description": (
                 "Render a chart in the UI from already-aggregated data."
@@ -168,6 +209,7 @@ async def _run_tool(
     chart_box: list[ChartSpec],
     sources: set[str],
     aggregated: set[str],
+    doc_sources: set[str],
 ) -> str:
     if name == "aggregate_invoices":
         result = aggregate(
@@ -190,6 +232,15 @@ async def _run_tool(
         if content is None:
             return "Invoice not found."
         sources.add(inv)  # record the invoice the agent actually used
+        return content
+    if name == "list_documents":
+        return json.dumps(list_documents())
+    if name == "read_document":
+        doc = args.get("name", "")
+        content = read_document(doc)
+        if content is None:
+            return "Document not found."
+        doc_sources.add(doc)
         return content
     if name == "render_chart":
         labels = [str(x) for x in args.get("labels", [])]
@@ -218,6 +269,7 @@ async def answer_question(
     chart_box: list[ChartSpec] = []
     sources: set[str] = set()
     aggregated: set[str] = set()
+    doc_sources: set[str] = set()
 
     for _ in range(_MAX_ROUNDS):
         completion = await chat_completion(
@@ -234,13 +286,14 @@ async def answer_question(
                 chart=chart_box[-1] if chart_box else None,
                 sources=sorted(sources),
                 aggregated=sorted(aggregated),
+                doc_sources=sorted(doc_sources),
             )
 
         messages.append(msg.model_dump(exclude_none=True))
         for call in msg.tool_calls:
             args = json.loads(call.function.arguments or "{}")
             result = await _run_tool(
-                call.function.name, args, chart_box, sources, aggregated
+                call.function.name, args, chart_box, sources, aggregated, doc_sources
             )
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": result}
@@ -255,4 +308,5 @@ async def answer_question(
         chart=chart_box[-1] if chart_box else None,
         sources=sorted(sources),
         aggregated=sorted(aggregated),
+        doc_sources=sorted(doc_sources),
     )
