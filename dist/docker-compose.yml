@@ -1,11 +1,11 @@
-# Invoice Agent — turnkey deployment.
+# Finance Agent — turnkey deployment.
 #
 #   1. Put your OpenAI key in .env  (see .env.example)
-#   2. docker compose up -d
+#   2. Double-click Update.exe   (or run: docker compose up -d)
 #   3. Open http://localhost:9000
 #
-# Docker pulls both images (Postgres + the app) automatically — nothing else to
-# install.
+# Update.exe always installs the newest version and removes the old image —
+# your data is kept. The app image is pinned to :latest so updates work.
 
 services:
   db:
@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
 
   app:
-    image: bhutiyalakhan/invoice-agent:0.1.2
+    image: bhutiyalakhan/invoice-agent:latest
     ports:
       - "9000:9001" # open http://localhost:9000
     env_file: .env
