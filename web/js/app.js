@@ -147,6 +147,16 @@ function invoiceUrl(name) {
 function originalUrl(name) {
   return `${invoiceUrl(name)}/original`;
 }
+function documentUrl(name) {
+  return `/documents/${encodeURIComponent(name)}`;
+}
+// Detail / original URLs that work for both invoices and finance documents.
+function detailUrl(name, type) {
+  return type === "document" ? documentUrl(name) : invoiceUrl(name);
+}
+function previewOriginalUrl(name, type) {
+  return `${detailUrl(name, type)}/original`;
+}
 
 /* ---------- connection status ---------- */
 async function ping() {
@@ -251,7 +261,7 @@ async function loadMessages(id) {
     thread.innerHTML = "";
     if (!r.ok) return;
     (await r.json()).forEach((m) =>
-      addMessage(m.role, m.content, m.chart, m.sources, m.aggregated)
+      addMessage(m.role, m.content, m.chart, m.sources, m.aggregated, m.doc_sources)
     );
   } catch {
     /* offline */
@@ -327,6 +337,53 @@ async function deleteInvoice(name, label) {
   loadInvoices();
 }
 
+/* ---------- finance documents list ---------- */
+async function loadDocuments() {
+  const list = $("#doc-list");
+  if (!list) return;
+  let docs = [];
+  try {
+    const r = await fetch("/documents");
+    if (r.ok) docs = await r.json();
+  } catch {
+    return;
+  }
+  const count = $("#doc-count");
+  if (count) count.textContent = docs.length ? `${docs.length}` : "";
+  if (!docs.length) {
+    list.innerHTML = `<p class="docs-empty">No finance documents yet.</p>`;
+    return;
+  }
+  list.innerHTML = "";
+  docs.forEach((d) => {
+    const item = el("div", "doc-item");
+    item.innerHTML =
+      `<button class="doc-item-body" title="Preview ${escapeHtml(d.title || d.name)}">` +
+      `<span class="doc-item-name">${escapeHtml(d.title || d.name)}</span>` +
+      `<span class="doc-item-meta">${escapeHtml(d.source_file || "")}</span></button>` +
+      `<button class="doc-del" title="Delete document" aria-label="Delete">${TRASH_SVG}</button>`;
+    item.querySelector(".doc-item-body")
+      .addEventListener("click", () => openPreview(d.name, d.title || d.name, "document"));
+    item.querySelector(".doc-del")
+      .addEventListener("click", () => deleteDocument(d.name, d.title || d.name));
+    list.appendChild(item);
+  });
+}
+
+async function deleteDocument(name, label) {
+  if (!(await confirmDialog(`Delete document "${label}"?`,
+    "This permanently removes the stored document."))) return;
+  try {
+    const r = await fetch(documentUrl(name), { method: "DELETE" });
+    if (!r.ok && r.status !== 404) throw new Error();
+    logIngest(`🗑 removed "${label}"`);
+    if (currentPreview === name) closePreview();
+  } catch {
+    logIngest(`✕ could not delete "${label}"`, true);
+  }
+  loadDocuments();
+}
+
 /* =====================================================================
    FILE RENDERING — one renderer for every supported format.
    Used by both the side panel and any other surface that needs a preview.
@@ -383,11 +440,11 @@ async function fetchOk(url, as) {
 // Renders the ORIGINAL file of `name` into `container`, choosing a strategy
 // from its real extension (or Content-Type). Falls back to extracted data for
 // unknown types or when an office viewer library isn't loaded.
-async function renderFile(container, name, origUrl, contentType) {
+async function renderFile(container, name, origUrl, contentType, detUrl) {
   const ext = extOf(name);
   const kind = resolveKind(name, contentType);
 
-  if (!kind) return renderExtracted(container, name);
+  if (!kind) return renderExtracted(container, name, undefined, detUrl);
 
   if (kind === "pdf" || kind === "frame") {
     const frame = el("iframe", "preview-frame");
@@ -407,7 +464,7 @@ async function renderFile(container, name, origUrl, contentType) {
 
   if (kind === "excel") {
     if (typeof XLSX === "undefined")
-      return renderExtracted(container, name, "Spreadsheet viewer isn't loaded — showing extracted data.");
+      return renderExtracted(container, name, "Spreadsheet viewer isn't loaded — showing extracted data.", detUrl);
     showLoading(container, "Reading spreadsheet…");
     const buf = await fetchOk(origUrl, "arrayBuffer");
     const wb = XLSX.read(buf, { type: "array" });
@@ -418,7 +475,7 @@ async function renderFile(container, name, origUrl, contentType) {
 
   if (kind === "word") {
     if (typeof mammoth === "undefined")
-      return renderExtracted(container, name, "Document viewer isn't loaded — showing extracted data.");
+      return renderExtracted(container, name, "Document viewer isn't loaded — showing extracted data.", detUrl);
     showLoading(container, "Reading document…");
     const buf = await fetchOk(origUrl, "arrayBuffer");
     const { value } = await mammoth.convertToHtml({ arrayBuffer: buf });
@@ -451,9 +508,9 @@ async function renderFile(container, name, origUrl, contentType) {
 }
 
 // Extracted-data fallback (the parsed YAML the agent stored).
-async function renderExtracted(container, name, note) {
+async function renderExtracted(container, name, note, detUrl) {
   showLoading(container, note ? note : "Loading extracted data…");
-  const r = await fetch(invoiceUrl(name));
+  const r = await fetch(detUrl || invoiceUrl(name));
   const d = await safeJson(r);
   if (!r.ok) throw new Error(d.detail || "Not found");
   const doc = el("div", "preview-doc");
@@ -530,7 +587,7 @@ function closePreview() {
   $("#preview-tabs").replaceChildren();
 }
 
-async function openPreview(name, label) {
+async function openPreview(name, label, type = "invoice") {
   currentPreview = name;
   $("#preview-title").textContent = label || name;
   const tabs = $("#preview-tabs");
@@ -539,15 +596,17 @@ async function openPreview(name, label) {
   tabs.replaceChildren();
   showLoading(pane);
 
-  const origUrl = originalUrl(name);
+  const detUrl = detailUrl(name, type);
+  const origUrl = previewOriginalUrl(name, type);
+  const dataLabel = type === "document" ? "Document text" : "Extracted data";
 
-  // Fetch the extracted JSON once. It feeds the "Extracted data" tab and,
-  // crucially, gives us `source_file` — the real filename with its true
-  // extension, which the stored `name` may have lost to slugifying.
+  // Fetch the extracted JSON once. It feeds the data tab and, crucially, gives
+  // us `source_file` — the real filename with its true extension, which the
+  // stored `name` may have lost to slugifying.
   let content = "";
   let realName = name;
   try {
-    const r = await fetch(invoiceUrl(name));
+    const r = await fetch(detUrl);
     const d = await safeJson(r);
     if (r.ok) {
       content = d.content || "";
@@ -579,7 +638,7 @@ async function openPreview(name, label) {
     setActive("tab-orig");
     showLoading(pane);
     try {
-      await renderFile(pane, realName, origUrl, contentType);
+      await renderFile(pane, realName, origUrl, contentType, detUrl);
     } catch {
       pane.innerHTML =
         `<div class="preview-loading err">Couldn't render this file. ` +
@@ -600,7 +659,7 @@ async function openPreview(name, label) {
     t.addEventListener("click", showOriginal);
     tabs.appendChild(t);
   }
-  const td = el("button", "ptab"); td.id = "tab-data"; td.textContent = "Extracted data";
+  const td = el("button", "ptab"); td.id = "tab-data"; td.textContent = dataLabel;
   td.addEventListener("click", showData);
   tabs.appendChild(td);
   if (hasOrig) {
@@ -668,7 +727,7 @@ const dropzone = $("#dropzone");
 function setFileName(files) {
   const n = files?.length || 0;
   $("#dropzone-text").textContent =
-    n === 0 ? "Choose invoice(s) or drop here" : n === 1 ? files[0].name : `${n} files selected`;
+    n === 0 ? "Choose file(s) or drop here" : n === 1 ? files[0].name : `${n} files selected`;
   dropzone.classList.toggle("has-file", n > 0);
 }
 fileInput.addEventListener("change", () => setFileName(fileInput.files));
@@ -744,7 +803,11 @@ async function uploadSingle(file) {
     return 0;
   }
   const d = res.data;
-  logIngest(`✓ ${d.invoice_no || d.name} — ${d.currency || ""} ${formatMoney(d.total_amount)}`);
+  if (d.kind === "document") {
+    logIngest(`✓ document stored: ${d.title || d.name}`);
+  } else {
+    logIngest(`✓ ${d.invoice_no || d.name} — ${d.currency || ""} ${formatMoney(d.total_amount)}`);
+  }
   return 1;
 }
 
@@ -762,6 +825,8 @@ async function uploadBulk(files) {
   (data.results || []).forEach((res) => {
     if (res.status === "duplicate") logIngest(`↪ duplicate skipped: ${res.invoice_no || res.filename}`);
     else if (res.status === "error") logIngest(`✕ ${res.filename}: ${res.detail}`, true);
+    else if (res.status === "stored" && res.kind === "document")
+      logIngest(`✓ document stored: ${res.title || res.filename}`);
   });
   const s = data.summary;
   logIngest(`✓ ${s.stored} stored · ${s.duplicates} duplicate(s) · ${s.errors} error(s)`);
@@ -785,7 +850,10 @@ $("#file-form").addEventListener("submit", async (e) => {
   btn.textContent = "Extract & Store";
   fileInput.value = "";
   setFileName(null);
-  if (stored) loadInvoices();
+  if (stored) {
+    loadInvoices();
+    loadDocuments();
+  }
 });
 
 /* ---------- chat ---------- */
@@ -794,7 +862,7 @@ const thread = $("#thread");
 function buildEmptyStateHTML() {
   return `<div class="empty-state" id="empty-state">` +
     `<div class="empty-mark">₹</div>` +
-    `<p>Ask about your invoices — totals, tax, and charts.</p>` +
+    `<p>Ask about your invoices and finance documents — totals, tax, and charts.</p>` +
     `</div>`;
 }
 
@@ -811,7 +879,7 @@ function resetThread() {
   renderSuggestions();
 }
 
-function addMessage(role, text, chart, sources, aggregated) {
+function addMessage(role, text, chart, sources, aggregated, docSources) {
   clearEmptyState();
   const wrap = el("div", `msg msg--${role}`);
 
@@ -833,6 +901,8 @@ function addMessage(role, text, chart, sources, aggregated) {
   }
   if (sources && sources.length) wrap.append(buildSources(sources));
   if (aggregated && aggregated.length) wrap.append(buildAggregated(aggregated));
+  if (role === "assistant" && docSources && docSources.length)
+    wrap.append(buildDocSources(docSources));
 
   thread.appendChild(wrap);
   thread.scrollTop = thread.scrollHeight;
@@ -853,6 +923,21 @@ function buildSources(names) {
   const box = el("div", "src-chips");
   box.innerHTML = `<p class="src-label">Used:</p>`;
   names.forEach((n) => box.appendChild(srcChip(n)));
+  return box;
+}
+
+// Finance documents the agent read (open the document preview, not an invoice).
+function docChip(name) {
+  const chip = el("button", "src-chip");
+  chip.textContent = name;
+  chip.title = `Preview ${name}`;
+  chip.addEventListener("click", () => openPreview(name, name, "document"));
+  return chip;
+}
+function buildDocSources(names) {
+  const box = el("div", "src-chips");
+  box.innerHTML = `<p class="src-label">From documents:</p>`;
+  names.forEach((n) => box.appendChild(docChip(n)));
   return box;
 }
 
@@ -1054,7 +1139,7 @@ async function sendQuestion(question) {
       localStorage.setItem(SESSION_KEY, sessionId);
       setSessionLabel();
     }
-    addMessage("assistant", data.answer || "(no answer)", data.chart, data.sources, data.aggregated);
+    addMessage("assistant", data.answer || "(no answer)", data.chart, data.sources, data.aggregated, data.doc_sources);
     loadSessions();
   } catch (err) {
     typing.remove();
@@ -1251,7 +1336,7 @@ async function restoreSession() {
     } else {
       renderSuggestions();
     }
-    msgs.forEach((m) => addMessage(m.role, m.content, m.chart, m.sources, m.aggregated));
+    msgs.forEach((m) => addMessage(m.role, m.content, m.chart, m.sources, m.aggregated, m.doc_sources));
   } catch {
     /* offline */
   }
@@ -1338,6 +1423,7 @@ async function init() {
   await restoreSession();
   loadSessions();
   loadInvoices();
+  loadDocuments();
   ping();
   setInterval(ping, 15000);
 }

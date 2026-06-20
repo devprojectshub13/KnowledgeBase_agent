@@ -156,13 +156,17 @@ TOOLS = [
         "function": {
             "name": "read_document",
             "description": (
-                "Read the full text of one finance document by its name, to "
-                "answer questions about it."
+                "Read the full text of one finance document to answer questions "
+                "about it. Pass the document's `name` from list_documents (its "
+                "title or original filename also work)."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Document name."}
+                    "name": {
+                        "type": "string",
+                        "description": "Document name, title, or filename.",
+                    }
                 },
                 "required": ["name"],
             },

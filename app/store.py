@@ -302,10 +302,33 @@ def list_documents() -> list[dict]:
     return rows
 
 
+def _find_doc(name: str) -> Path | None:
+    """Locate a finance document by its stored name, its title, or its original
+    filename — all case-insensitively — so the agent can pass whichever string
+    it has (the model often passes the title or source_file, not the slug)."""
+    direct = _doc_path(name)
+    if direct.exists():
+        return direct
+    if not DOCS_DIR.exists():
+        return None
+    target = name.strip().lower()
+    target_slug = _slug(name)
+    for path in DOCS_DIR.glob("*.md"):
+        if path.stem.lower() in (target, target_slug):
+            return path
+        front, _ = _parse(path.read_text(encoding="utf-8"))
+        title = str(front.get("title") or "").strip().lower()
+        src = str(front.get("source_file") or "").strip().lower()
+        if target in (title, src) or target_slug == _slug(title or src or ""):
+            return path
+    return None
+
+
 def read_document(name: str) -> str | None:
-    """Full text of one finance document (truncated to the read budget)."""
-    path = _doc_path(name)
-    if not path.exists():
+    """Full text of one finance document (truncated to the read budget). Accepts
+    the stored name, the title, or the original filename. None if not found."""
+    path = _find_doc(name)
+    if path is None:
         return None
     return path.read_text(encoding="utf-8")[: settings.doc_read_char_limit]
 
