@@ -34,11 +34,16 @@ from app.sessions import (
     session_exists,
 )
 from app.store import (
+    delete_document,
     delete_invoice,
+    doc_original_path,
     find_existing,
+    list_documents,
     list_invoices,
     original_path,
+    read_document,
     read_invoice,
+    save_document,
     save_invoice,
     save_original,
 )
@@ -99,8 +104,14 @@ async def ingest_file(
         raise HTTPException(status_code=422, detail="No extractable text in file")
 
     fields, body = await extract_invoice(filename, markdown)
-    existing = find_existing(fields.get("invoice_no"), fields.get("seller_name"))
 
+    # Non-invoice finance documents go to the document store (read for Q&A).
+    if fields.get("document_type") != "invoice":
+        title = fields.get("document_title") or filename
+        doc_name = save_document(title, body, filename, data)
+        return IngestResponse(name=doc_name, kind="document", title=title)
+
+    existing = find_existing(fields.get("invoice_no"), fields.get("seller_name"))
     if existing and on_duplicate == "ask":
         raise HTTPException(
             status_code=409,
@@ -119,6 +130,7 @@ async def ingest_file(
     save_original(name, filename, data)  # keep the original for preview
     return IngestResponse(
         name=name,
+        kind="invoice",
         invoice_no=fields.get("invoice_no"),
         total_amount=fields.get("total_amount"),
         tax_amount=fields.get("tax_amount"),
@@ -156,6 +168,16 @@ async def ingest_files(
         except Exception as exc:  # noqa: BLE001 - report, don't fail the batch
             return {"filename": fn, "status": "error", "detail": str(exc)[:140]}
         async with write_lock:  # fast, serialized to avoid duplicate races
+            if fields.get("document_type") != "invoice":
+                title = fields.get("document_title") or fn
+                doc_name = save_document(title, body, fn, data)
+                return {
+                    "filename": fn,
+                    "status": "stored",
+                    "kind": "document",
+                    "name": doc_name,
+                    "title": title,
+                }
             existing = find_existing(
                 fields.get("invoice_no"), fields.get("seller_name")
             )
@@ -172,6 +194,7 @@ async def ingest_files(
         return {
             "filename": fn,
             "status": "stored",
+            "kind": "invoice",
             "name": name,
             "invoice_no": fields.get("invoice_no"),
             "total_amount": fields.get("total_amount"),
@@ -216,6 +239,35 @@ async def invoice_original(name: str):
 async def invoice_delete(name: str) -> None:
     if not delete_invoice(name):
         raise HTTPException(status_code=404, detail="Invoice not found")
+
+
+# ---------- Finance documents (non-invoice) ----------
+@app.get("/documents")
+async def documents_list() -> list[dict]:
+    return list_documents()
+
+
+@app.get("/documents/{name}")
+async def document_detail(name: str) -> dict:
+    content = read_document(name)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"name": name, "content": content}
+
+
+@app.api_route("/documents/{name}/original", methods=["GET", "HEAD"])
+async def document_original(name: str):
+    path = doc_original_path(name)
+    if path is None or not path.exists():
+        raise HTTPException(status_code=404, detail="Original file not available")
+    media = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media, content_disposition_type="inline")
+
+
+@app.delete("/documents/{name}", status_code=204)
+async def document_delete(name: str) -> None:
+    if not delete_document(name):
+        raise HTTPException(status_code=404, detail="Document not found")
 
 
 @app.get("/sessions", response_model=list[SessionSummary])
@@ -269,6 +321,7 @@ async def ask(
         "chart": result.chart.model_dump() if result.chart else None,
         "sources": result.sources,
         "aggregated": result.aggregated,
+        "doc_sources": result.doc_sources,
     }
     await append_turn(session, session_id, req.question, result.answer, meta=meta)
     result.session_id = session_id

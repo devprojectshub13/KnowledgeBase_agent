@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Invoice · Agent</title>
+  <title>Finance · Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="icon" href="/static/image/logo.png" type="image/png">
@@ -45,8 +45,9 @@
     <!-- Invoices -->
     <aside class="panel panel--kb">
       <div class="panel-head">
-        <h2 class="panel-title">Invoices</h2>
-        <p class="panel-desc">Upload invoices. Each is parsed and stored as structured data you can total and chart.</p>
+        <h2 class="panel-title">Documents</h2>
+        <p class="panel-desc">Upload invoices or finance documents. Invoices become structured data you can total and
+          chart; statements, P&amp;L and reports are read for Q&amp;A.</p>
       </div>
 
       <form id="file-form" class="ingest-form">
@@ -54,7 +55,7 @@
           <input id="file-input" type="file" hidden multiple
             accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.svg,.docx,.doc,.xlsx,.xls,.html,.htm,.md,.txt,.csv,.tsv,.json" />
           <span class="dropzone-icon">↑</span>
-          <span class="dropzone-text" id="dropzone-text">Choose invoice(s) or drop here</span>
+          <span class="dropzone-text" id="dropzone-text">Choose file(s) or drop here</span>
           <span class="dropzone-hint">PDF · IMAGE · XLSX · DOCX · CSV · MD</span>
         </label>
         <button class="btn btn--solid" type="submit">Extract &amp; Store</button>
@@ -64,11 +65,21 @@
 
       <div class="kb-docs">
         <div class="kb-docs-head">
-          <span class="field-label">Stored</span>
+          <span class="field-label">Invoices</span>
           <span class="kb-docs-count" id="inv-count"></span>
         </div>
         <div id="inv-list" class="docs-list">
           <p class="docs-empty">No invoices yet.</p>
+        </div>
+      </div>
+
+      <div class="kb-docs">
+        <div class="kb-docs-head">
+          <span class="field-label">Finance documents</span>
+          <span class="kb-docs-count" id="doc-count"></span>
+        </div>
+        <div id="doc-list" class="docs-list">
+          <p class="docs-empty">No finance documents yet.</p>
         </div>
       </div>
     </aside>
@@ -87,7 +98,7 @@
         <div id="thread" class="thread">
           <div class="empty-state" id="empty-state">
             <div class="empty-mark">₹</div>
-            <p>Ask about your invoices — totals, tax, and charts.</p>
+            <p>Ask about your invoices and finance documents — totals, tax, and charts.</p>
           </div>
         </div>
 
@@ -99,7 +110,7 @@
 
         <form id="ask-form" class="composer">
           <div class="composer-main">
-            <textarea id="ask-input" class="composer-input" rows="1" placeholder="Ask about your invoices…"
+            <textarea id="ask-input" class="composer-input" rows="1" placeholder="Ask about your finances…"
               autocomplete="off"></textarea>
           </div>
           <button id="save-q" class="btn btn--ghost composer-btn" type="button" title="Save this question">★

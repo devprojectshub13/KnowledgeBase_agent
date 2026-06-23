@@ -1,0 +1,61 @@
+============================================================
+  FINANCE AGENT  —  SETUP GUIDE
+============================================================
+
+WHAT YOU NEED
+  - A Windows computer
+  - Internet connection
+  - This folder (finance-agent)
+
+
+STEP 1 — INSTALL DOCKER  (one time only)
+  1. Go to:  https://www.docker.com/products/docker-desktop
+  2. Download and install it (keep clicking Next / Agree).
+  3. Open "Docker Desktop" and wait until the whale icon
+     stops moving — that means it is ready.
+
+
+STEP 2 — START (OR UPDATE) THE APP
+  Just double-click:   Update.exe
+
+  A small window opens and does everything for you:
+    - downloads the newest version
+    - starts the app
+    - removes the old version (your data is kept)
+    - opens the app in your browser
+
+  The first time it may take a minute or two to download.
+  When it says "up to date", you are done.
+
+
+STEP 3 — OPEN THE APP
+  Your browser opens automatically at:
+
+            http://localhost:9000
+
+  If it doesn't, open your browser and go there yourself.
+  Upload your invoices or finance documents and start asking.
+
+
+UPDATING LATER
+  Whenever a new version is available, just double-click
+  Update.exe again. That's it — same magic button.
+
+
+TURN IT OFF / ON LATER (optional)
+  The app keeps running in the background, even after a
+  restart. To fully stop it, open Docker Desktop and stop
+  the "finance-agent" containers. To start it again, just
+  double-click Update.exe.
+
+
+NOTES
+  - The very first time you run Update.exe, Windows may show
+    a blue "Windows protected your PC" box. Click "More info"
+    then "Run anyway" — this is normal for new apps.
+  - If nothing happens, make sure Docker Desktop is open and
+    running, then double-click Update.exe again.
+  - Your OpenAI key is already set up in this folder — you do
+    not need to change anything. Keep the file named .env
+    safe and private.
+============================================================

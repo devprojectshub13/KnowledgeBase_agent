@@ -10,8 +10,15 @@ from app.config import settings
 from app.llm import chat_completion
 
 _EXTRACT_SYSTEM = (
-    "You extract structured data from a single invoice, given as markdown. "
-    "Return ONLY a JSON object with these keys:\n"
+    "You process a single business document, given as markdown.\n"
+    "Return ONLY a JSON object. FIRST classify it:\n"
+    "- document_type: 'invoice' if it is an invoice/bill/tax-invoice for goods or "
+    "services; otherwise 'other' (bank statement, P&L, balance sheet, financial "
+    "report, ledger, receipt, expense sheet, etc.).\n"
+    "- document_title: a short human title (e.g. the report name, or the invoice "
+    "number).\n"
+    "If document_type is 'other', set all the invoice fields below to null/empty "
+    "— do not invent them. If 'invoice', fill them in. The invoice keys are:\n"
     "- invoice_no (string — the SELLER'S invoice/bill number, usually labelled "
     "'Invoice No'. It is NOT the PO/order number, NOT the IRN/ACK, and NOT any "
     "reference/challan number. If unsure, pick the value next to 'Invoice No'.)\n"
@@ -78,10 +85,10 @@ def _to_number(value) -> float | None:
 
 
 async def extract_invoice(filename: str, markdown: str) -> tuple[dict, str]:
-    """Extract structured fields from invoice markdown. Returns (fields, body)
-    WITHOUT persisting — the caller decides how to store it (e.g. after a
-    duplicate check). The body is the FULL parsed markdown, so no source detail
-    is lost and any new field can be re-derived later."""
+    """Classify a document and, if it is an invoice, extract its structured
+    fields. Returns (fields, body) WITHOUT persisting. `fields["document_type"]`
+    is 'invoice' or 'other' so the caller can route non-invoice finance documents
+    to the document store. The body is the FULL parsed markdown."""
     resp = await chat_completion(
         model=settings.llm_model,
         messages=[
@@ -93,6 +100,7 @@ async def extract_invoice(filename: str, markdown: str) -> tuple[dict, str]:
     )
     raw = json.loads(resp.choices[0].message.content or "{}")
 
+    doc_type = "invoice" if raw.get("document_type") == "invoice" else "other"
     fields: dict = {key: raw.get(key) for key in _STRINGS}
     fields["invoice_no"] = fields.get("invoice_no") or filename
     for key in _NUMERIC:
@@ -102,6 +110,8 @@ async def extract_invoice(filename: str, markdown: str) -> tuple[dict, str]:
     extra = raw.get("additional_fields")
     fields["additional_fields"] = extra if isinstance(extra, dict) else {}
     fields["source_file"] = filename
+    fields["document_type"] = doc_type
+    fields["document_title"] = raw.get("document_title") or filename
 
     # Keep the complete parsed text so nothing useful is ever discarded.
     return fields, markdown.strip()

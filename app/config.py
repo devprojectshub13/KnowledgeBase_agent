@@ -31,5 +31,8 @@ class Settings(BaseSettings):
     # Cap on how much of a single invoice file is fed to the agent per read.
     read_char_limit: int = 8000
 
+    # Cap on how much of a finance document is fed to the agent per read.
+    doc_read_char_limit: int = 16000
+
 
 settings = Settings()

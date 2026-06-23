@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 class IngestResponse(BaseModel):
     name: str
+    kind: Literal["invoice", "document"] = "invoice"
+    title: str | None = None  # for finance documents
     invoice_no: str | None = None
     total_amount: float | None = None
     tax_amount: float | None = None
@@ -28,6 +30,7 @@ class AskResponse(BaseModel):
     chart: ChartSpec | None = None
     sources: list[str] = []  # specific invoices the agent read for this answer
     aggregated: list[str] = []  # invoices covered by an aggregate (totals/charts)
+    doc_sources: list[str] = []  # finance documents the agent read
     session_id: str | None = None
 
 
@@ -48,3 +51,4 @@ class MessageOut(BaseModel):
     chart: ChartSpec | None = None
     sources: list[str] = []
     aggregated: list[str] = []
+    doc_sources: list[str] = []
