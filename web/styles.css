@@ -26,7 +26,17 @@ body {
   display: flex;
   flex-direction: column;
 }
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
+.wordmark-logo {
+  height: 48px;      /* adjust to match your text size */
+  width: auto;
+  display: block;
+}
 /* ---------- Masthead ---------- */
 .masthead { border-bottom: 1.5px solid var(--line); }
 .masthead-inner {
